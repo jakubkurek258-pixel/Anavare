@@ -1,0 +1,6 @@
+{
+  "name": "Anavare",
+  "description": "Anavare is a gamified self-improvement RPG platform where users complete tasks, develop real-world habits, level up multiple skill paths (Health, Fitness, Learning, Productivity, Finance, Mindset), participate in a community feed, and complete curated learning courses.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

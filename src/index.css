@@ -1,0 +1,84 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", "Inter", sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --color-cyber-blue: #6366f1; /* Indigo 500 */
+  --color-cyber-purple: #8b5cf6; /* Purple 500 */
+  --color-bg-darker: #050512;
+  --color-bg-dark: #09091d;
+  --color-bg-card: rgba(255, 255, 255, 0.05); /* Elegant Dark translucent card */
+  --color-neon-cyan: #22d3ee; /* Bright Slate Cyan */
+}
+
+/* Base custom interactive layout elements */
+@layer base {
+  body {
+    background-color: #050512;
+    color: #f8fafc;
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+}
+
+/* Custom interactive cyber glass classes rewritten for Elegant Dark */
+.cyber-glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.5);
+}
+
+.cyber-glass-purple {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  box-shadow: 0 10px 40px -10px rgba(139, 92, 246, 0.1);
+}
+
+.cyber-glow-blue {
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.25);
+}
+
+.cyber-glow-purple {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.25);
+}
+
+.text-glow-blue {
+  text-shadow: 0 0 8px rgba(99, 102, 241, 0.6);
+}
+
+.text-glow-purple {
+  text-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
+}
+
+/* Animating matrix-like background grid - simplified to premium subtle radial light */
+.cyber-grid {
+  background: radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.06) 0%, rgba(5, 5, 18, 0) 70%);
+}
+
+/* Cybernetic button clip path corners - softens for an elegant look */
+.clip-cyber {
+  clip-path: polygon(6px 0%, 100% 0%, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0% 100%, 0% 6px);
+}
+
+/* Customized cyber scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #050512;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.4);
+}

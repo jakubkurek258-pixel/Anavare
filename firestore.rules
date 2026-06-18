@@ -1,0 +1,122 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 1. Users collection
+    // User profiles are clickable and public for social leaderboards and posts
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) 
+        && incoming().id == userId
+        && incoming().level == 1
+        && incoming().xp == 0;
+      allow update: if isOwner(userId)
+        && incoming().id == userId;
+    }
+
+    // 2. Tasks collection
+    // Private tasks of each user
+    match /tasks/{taskId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() 
+        && incoming().userId == request.auth.uid
+        && incoming().id == taskId;
+      allow update: if isSignedIn() 
+        && existing().userId == request.auth.uid
+        && incoming().userId == request.auth.uid;
+      allow delete: if isSignedIn() 
+        && existing().userId == request.auth.uid;
+    }
+
+    // 3. Community Posts
+    // Anyone signed in can read. Any authenticated user can create. Action updates allow liking.
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && incoming().userId == request.auth.uid
+        && incoming().id == postId;
+      allow update: if isSignedIn() && (
+        // Action 1: Creator edit post
+        (existing().userId == request.auth.uid && incoming().userId == request.auth.uid) ||
+        // Action 2: Anyone likes or increments comment count
+        (incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'likesCount', 'commentsCount']))
+      );
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // 4. Post Comments Subcollection
+    match /posts/{postId}/comments/{commentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && incoming().userId == request.auth.uid
+        && incoming().id == commentId;
+      allow update: if isSignedIn() && existing().userId == request.auth.uid;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    // 5. User Lessons Complete Trackers
+    match /userLessons/{lessonDocId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() 
+        && incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() 
+        && existing().userId == request.auth.uid
+        && incoming().userId == request.auth.uid;
+      allow delete: if isSignedIn() 
+        && existing().userId == request.auth.uid;
+    }
+
+    // 6. Notifications for users
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() 
+        && incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() 
+        && existing().userId == request.auth.uid
+        && incoming().userId == request.auth.uid;
+      allow delete: if isSignedIn() 
+        && existing().userId == request.auth.uid;
+    }
+
+    // 7. Custom Courses
+    match /courses/{courseId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && incoming().creatorId == request.auth.uid
+        && incoming().id == courseId
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.level >= 10;
+    }
+
+    // 8. Leaderboard collection
+    match /leaderboard/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+    }
+  }
+}

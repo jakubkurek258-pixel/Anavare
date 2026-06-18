@@ -1,0 +1,152 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "RPG stats, level, current XP, streaks, and timestamps.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "avatar": { "type": "string" },
+        "level": { "type": "number" },
+        "xp": { "type": "number" },
+        "requiredXp": { "type": "number" },
+        "totalXp": { "type": "number" },
+        "streak": { "type": "number" },
+        "lastActiveDate": { "type": "string" },
+        "skills": { "type": "object" },
+        "badges": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "username", "email", "level", "xp", "requiredXp", "totalXp", "streak", "skills", "badges", "createdAt"]
+    },
+    "Task": {
+      "title": "RPG Task",
+      "description": "User created self-improvement task with category and difficulty.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string", "enum": ["health", "fitness", "learning", "productivity", "finance", "mindset"] },
+        "difficulty": { "type": "string", "enum": ["easy", "medium", "hard", "epic"] },
+        "completed": { "type": "boolean" },
+        "completedAt": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "recurring": { "type": "string", "enum": ["none", "daily", "weekly"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "title", "category", "difficulty", "completed", "recurring", "createdAt"]
+    },
+    "Post": {
+      "title": "Social Feed Post",
+      "description": "A progress post in the community feed.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorAvatar": { "type": "string" },
+        "content": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "likes": { "type": "array" },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "authorName", "authorAvatar", "content", "likes", "likesCount", "commentsCount", "createdAt"]
+    },
+    "Comment": {
+      "title": "Social Feed Comment",
+      "description": "A comment or reply on a progress post.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "postId": { "type": "string" },
+        "userId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorAvatar": { "type": "string" },
+        "content": { "type": "string" },
+        "parentCommentId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "postId", "userId", "authorName", "authorAvatar", "content", "createdAt"]
+    },
+    "UserLesson": {
+      "title": "Course Lesson Completion",
+      "description": "Completed status for a lesson inside a course.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "courseId": { "type": "string" },
+        "lessonId": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "courseId", "lessonId", "completed", "completedAt"]
+    },
+    "Notification": {
+      "title": "RPG Notification",
+      "description": "Milestone notifications and feed activity updates.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["system", "level_up", "streak", "badge", "social"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "title", "message", "type", "read", "createdAt"]
+    },
+    "Course": {
+      "title": "Custom Course",
+      "description": "Custom courses created by veteran level 60+ players.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "xpReward": { "type": "number" },
+        "image": { "type": "string" },
+        "lessons": { "type": "array" },
+        "creatorId": { "type": "string" }
+      },
+      "required": ["id", "title", "description", "category", "xpReward", "lessons", "creatorId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Stores core RPG profiles for users."
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Stores user to-do tasks and habits."
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Stores public community feed posts."
+    },
+    "/posts/{postId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Stores thread discussions under a public post."
+    },
+    "/userLessons/{userLessonId}": {
+      "schema": "UserLesson",
+      "description": "Tracks course progress and lesson completions."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "A user's personal updates and alerts."
+    },
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Custom learning courses generated by users."
+    }
+  }
+}
