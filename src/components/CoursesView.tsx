@@ -3,7 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { stateService } from '../lib/stateService';
 import { SAMPLE_COURSES } from '../data/rpgAssets';
 import { Course, Lesson, UserLesson, TaskCategory } from '../types';
-import { BookOpen, GraduationCap, CheckCircle, Lock, PlayCircle, Eye, RefreshCw, Sparkles, AlertCircle, Camera } from 'lucide-react';
+import { BookOpen, GraduationCap, CheckCircle, Lock, PlayCircle, Eye, RefreshCw, Sparkles, AlertCircle, Camera, Trash2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function CoursesView() {
   const { user } = useAuth();
@@ -31,6 +32,27 @@ export default function CoursesView() {
   const [videoUploadError, setVideoUploadError] = useState('');
   const [uploadingLessonImageIdx, setUploadingLessonImageIdx] = useState<number | null>(null);
   const [lessonImageUploadError, setLessonImageUploadError] = useState('');
+
+  // Course deletion confirmation state
+  const [courseToDelete, setCourseToDelete] = useState<Course | null>(null);
+  const [isDeletingCourse, setIsDeletingCourse] = useState(false);
+
+  const handleDeleteCourse = async (courseId: string) => {
+    if (!user) return;
+    setIsDeletingCourse(true);
+    try {
+      await stateService.deleteCourse(courseId, user.id);
+      setCourseToDelete(null);
+      if (selectedCourse?.id === courseId) {
+        setSelectedCourse(null);
+        setSelectedLesson(null);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsDeletingCourse(false);
+    }
+  };
 
   const [proofUrl, setProofUrl] = useState('');
   const [proofType, setProofType] = useState<'image' | 'video' | null>(null);
@@ -346,14 +368,28 @@ export default function CoursesView() {
                       </div>
 
                       {/* Explore Action button */}
-                      <button
-                        onClick={() => setSelectedCourse(course)}
-                        id={`explore-course-${course.id}`}
-                        className="w-full py-2 bg-slate-900 border border-white/5 hover:border-indigo-500 hover:bg-indigo-500/10 text-slate-200 text-xs font-mono lowercase tracking-wider hover:text-indigo-400 transition-all cursor-pointer rounded-lg flex items-center justify-center gap-1.5"
-                      >
-                        <PlayCircle className="w-4 h-4" />
-                        launch course console
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setSelectedCourse(course)}
+                          id={`explore-course-${course.id}`}
+                          className="flex-grow py-2 bg-slate-900 border border-white/5 hover:border-indigo-500 hover:bg-indigo-500/10 text-slate-200 text-xs font-mono lowercase tracking-wider hover:text-indigo-400 transition-all cursor-pointer rounded-lg flex items-center justify-center gap-1.5"
+                        >
+                          <PlayCircle className="w-4 h-4" />
+                          launch course console
+                        </button>
+                        {course.creatorId === user?.id && (
+                          <button
+                            onClick={() => {
+                              setCourseToDelete(course);
+                            }}
+                            id={`delete-course-${course.id}`}
+                            className="p-2 border border-pink-500/30 bg-pink-500/5 hover:bg-pink-500/10 hover:border-pink-505 text-pink-500 rounded-lg hover:text-pink-400 transition-all cursor-pointer flex items-center justify-center aspect-square"
+                            title="Delete this custom course"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -965,6 +1001,58 @@ export default function CoursesView() {
           </div>
         </div>
       )}
+
+      {/* COURSE DELETION CONFIRMATION DIALOG MODAL */}
+      <AnimatePresence>
+        {courseToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-sm rounded-xl bg-[#0a0914] border border-red-500/20 p-6 relative overflow-hidden backdrop-blur-xl shadow-2xl text-center"
+            >
+              <div className="flex flex-col gap-4 items-center">
+                <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 animate-pulse">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="font-display font-semibold text-xs uppercase text-slate-100 tracking-wider">
+                    DELETE COURSE SYSTEM?
+                  </h3>
+                  <p className="text-[11.5px] text-slate-400">
+                    Are you sure you want to delete this custom course? All associated progress and data will be erased.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-black/40 rounded-lg border border-slate-900 w-full text-left">
+                  <span className="text-[9px] font-mono text-slate-500 uppercase block mb-1">COURSE NAME:</span>
+                  <p className="text-[11px] font-display font-medium text-slate-200">
+                    {courseToDelete.title}
+                  </p>
+                </div>
+
+                <div className="flex gap-3 w-full pt-2">
+                  <button
+                    onClick={() => setCourseToDelete(null)}
+                    className="flex-1 px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-850 hover:border-slate-700 text-slate-400 hover:text-white rounded-lg text-xs font-mono transition-all lowercase"
+                  >
+                    [cancel]
+                  </button>
+                  <button
+                    onClick={() => handleDeleteCourse(courseToDelete.id)}
+                    disabled={isDeletingCourse}
+                    className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 border border-red-500 text-white rounded-lg text-xs font-display font-medium transition-all uppercase disabled:opacity-50"
+                  >
+                    {isDeletingCourse ? 'DELETING...' : 'YES, DELETE'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }

@@ -7,7 +7,7 @@ import AvatarImage from './AvatarImage';
 import { SocialFeedImage } from './SocialFeedImage';
 import { 
   Heart, MessageCircle, Send, Plus, Image, User, Users,
-  CornerDownRight, Flame, ShieldAlert, Badge, HelpCircle, X
+  CornerDownRight, Flame, ShieldAlert, Badge, HelpCircle, X, Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -38,6 +38,9 @@ export default function SocialFeedView() {
   const [isEditingUploading, setIsEditingUploading] = useState(false);
   const [editingUploadError, setEditingUploadError] = useState<string | null>(null);
 
+  const [postError, setPostError] = useState<string | null>(null);
+  const [commentErrors, setCommentErrors] = useState<{ [postId: string]: string | null }>({});
+
   // Comments tracking state { [postId]: list_of_comments }
   const [commentsByPost, setCommentsByPost] = useState<{ [postId: string]: RPGComment[] }>({});
   const [activePostThreads, setActivePostThreads] = useState<Set<string>>(new Set());
@@ -49,6 +52,10 @@ export default function SocialFeedView() {
 
   // Nested comments reply-to target tracking: { [postId]: commentId_to_reply_to }
   const [commentReplyTargets, setCommentReplyTargets] = useState<{ [postId: string]: string | null }>({});
+
+  // Post deletion confirmation modal tracker
+  const [postToDelete, setPostToDelete] = useState<RPGPost | null>(null);
+  const [isDeletingPost, setIsDeletingPost] = useState(false);
 
   useEffect(() => {
     // Subscribe to all post events
@@ -133,6 +140,7 @@ export default function SocialFeedView() {
     e.preventDefault();
     if (!postContent.trim()) return;
 
+    setPostError(null);
     const imgToSave = uploadedImageUrl || selectedTemplate || postImageUrl.trim() || null;
     try {
       await stateService.createSocialPost(
@@ -147,22 +155,37 @@ export default function SocialFeedView() {
       setSelectedTemplate('');
       setUploadedImageUrl(null);
       setUploadError(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setPostError(err?.message || 'An error occurred while creating your post.');
     }
   };
 
   const handleSaveEdit = async (postId: string) => {
     if (!editingContent.trim()) return;
 
+    setEditingUploadError(null);
     try {
       await stateService.updateSocialPost(postId, user.id, {
         content: editingContent,
         imageUrl: editingImageUrl
       });
       setEditingPostId(null);
+    } catch (err: any) {
+      console.error(err);
+      setEditingUploadError(err?.message || 'Error occurred during edit save process.');
+    }
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    setIsDeletingPost(true);
+    try {
+      await stateService.deleteSocialPost(postId, user.id);
+      setPostToDelete(null);
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsDeletingPost(false);
     }
   };
 
@@ -191,6 +214,7 @@ export default function SocialFeedView() {
     const text = newCommentTexts[postId] || '';
     if (!text.trim()) return;
 
+    setCommentErrors(prev => ({ ...prev, [postId]: null }));
     const parentId = commentReplyTargets[postId] || null;
 
     try {
@@ -206,8 +230,9 @@ export default function SocialFeedView() {
       // Wipe triggers
       setNewCommentTexts(prev => ({ ...prev, [postId]: '' }));
       setCommentReplyTargets(prev => ({ ...prev, [postId]: null }));
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setCommentErrors(prev => ({ ...prev, [postId]: err?.message || 'Failed to add comment.' }));
     }
   };
 
@@ -382,18 +407,30 @@ export default function SocialFeedView() {
           
           <div className="flex items-center gap-2">
             {post.userId === user.id && (
-              <button
-                onClick={() => {
-                  setEditingPostId(post.id);
-                  setEditingContent(post.content);
-                  setEditingImageUrl(post.imageUrl);
-                  setEditingUploadError(null);
-                }}
-                id={`edit-post-btn-${post.id}`}
-                className="font-mono text-[9.5px] text-indigo-400 hover:text-indigo-300 hover:border-indigo-405/45 hover:bg-indigo-500/10 transition-all font-bold uppercase cursor-pointer px-2 py-0.5 rounded border border-indigo-500/20 bg-indigo-500/5 mr-1"
-              >
-                EDIT
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    setEditingPostId(post.id);
+                    setEditingContent(post.content);
+                    setEditingImageUrl(post.imageUrl);
+                    setEditingUploadError(null);
+                  }}
+                  id={`edit-post-btn-${post.id}`}
+                  className="font-mono text-[9.5px] text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 transition-all font-bold uppercase cursor-pointer px-2 py-0.5 rounded border border-indigo-500/20 bg-indigo-500/5 mr-1"
+                >
+                  EDIT
+                </button>
+                <button
+                  onClick={() => {
+                    setPostToDelete(post);
+                  }}
+                  id={`delete-post-btn-${post.id}`}
+                  className="font-mono text-[9.5px] text-pink-500 hover:text-pink-400 hover:bg-pink-500/10 transition-all font-bold uppercase cursor-pointer px-2 py-0.5 rounded border border-pink-500/20 bg-pink-500/5 mr-1 flex items-center gap-1"
+                >
+                  <Trash2 className="w-2.5 h-2.5" />
+                  DELETE
+                </button>
+              </>
             )}
             <span className="font-mono text-[8.5px] text-slate-500 uppercase">FEED SECURE</span>
           </div>
@@ -407,7 +444,7 @@ export default function SocialFeedView() {
         {/* Attachment Illustration image preview with dynamic SocialFeedImage rendering */}
         {post.imageUrl && (
           <SocialFeedImage
-            src={post.imageUrl}
+            imageUrl={post.imageUrl}
             alt="Community upload progress"
           />
         )}
@@ -528,6 +565,12 @@ export default function SocialFeedView() {
                 ))
               )}
             </div>
+
+            {commentErrors[post.id] && (
+              <span className="text-[10.5px] font-mono text-pink-400 block mb-2.5 px-1">
+                ⚠️ {commentErrors[post.id]}
+              </span>
+            )}
 
             {/* Comment submission form */}
             <form onSubmit={(e) => handleAddComment(post.id, e)} className="flex items-center gap-2">
@@ -673,6 +716,12 @@ export default function SocialFeedView() {
                 <span className="text-[10px] font-mono text-pink-400 mt-1 block">{uploadError}</span>
               )}
             </div>
+
+            {postError && (
+              <span className="text-xs font-mono text-pink-400 mt-1 block leading-normal border border-pink-500/20 bg-pink-950/20 px-3 py-2 rounded-lg">
+                ⚠️ {postError}
+              </span>
+            )}
 
             {/* Confirm buttons */}
             <div className="flex justify-between items-center mt-1">
@@ -828,6 +877,56 @@ export default function SocialFeedView() {
                 </div>
               </div>
 
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      
+      {/* POST DELETION CONFIRMATION DIALOG MODAL */}
+      <AnimatePresence>
+        {postToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-sm rounded-xl bg-[#0a0914] border border-red-500/20 p-6 relative overflow-hidden backdrop-blur-xl shadow-2xl text-center"
+            >
+              <div className="flex flex-col gap-4 items-center">
+                <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 animate-pulse">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="font-display font-semibold text-xs uppercase text-slate-100 tracking-wider">
+                    DELETE POST?
+                  </h3>
+                  <p className="text-[11.5px] text-slate-400">
+                    Do you want to delete this post?
+                  </p>
+                </div>
+
+                <div className="p-3 bg-black/40 rounded-lg border border-slate-900 w-full text-left max-h-24 overflow-y-auto">
+                  <p className="text-[10.5px] font-sans text-slate-300 italic line-clamp-3">
+                    "{postToDelete.content}"
+                  </p>
+                </div>
+
+                <div className="flex gap-3 w-full pt-2">
+                  <button
+                    onClick={() => setPostToDelete(null)}
+                    className="flex-1 px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-850 hover:border-slate-700 text-slate-400 hover:text-white rounded-lg text-xs font-mono transition-all lowercase"
+                  >
+                    [cancel]
+                  </button>
+                  <button
+                    onClick={() => handleDeletePost(postToDelete.id)}
+                    disabled={isDeletingPost}
+                    className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 border border-red-500 text-white rounded-lg text-xs font-display font-medium transition-all uppercase disabled:opacity-50"
+                  >
+                    {isDeletingPost ? 'DELETING...' : 'YES, DELETE'}
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

@@ -5,16 +5,37 @@ import { stateService } from '../lib/stateService';
 import AvatarImage from './AvatarImage';
 import { 
   User, Shield, Award, Calendar, Flame, Zap, Camera, RefreshCw, 
-  Check, Swords, Brain, Dumbbell, Heart, Coins, CheckSquare, Target
+  Check, Swords, Brain, Dumbbell, Heart, Coins, CheckSquare, Target,
+  Trash2, ShieldAlert
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function ProfileView() {
-  const { user, setProfileAvatar } = useAuth();
+  const { user, setProfileAvatar, logout } = useAuth();
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Account deletion states
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deletionReason, setDeletionReason] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
   if (!user) return null;
+
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    setDeleteError('');
+    try {
+      await stateService.deleteAccount(user.id, deletionReason);
+      await logout();
+    } catch (err: any) {
+      console.error(err);
+      setDeleteError(err?.message || 'Failed to complete execution of account deletion sequence.');
+      setIsDeleting(false);
+    }
+  };
 
   const handleCustomAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -297,6 +318,110 @@ export default function ProfileView() {
           </div>
         </div>
       </div>
+
+      {/* DANGER PROTOCOL ZONE */}
+      <div className="p-6 rounded-2xl bg-red-950/10 border border-red-500/10 text-left space-y-4 mt-6">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400">
+            <ShieldAlert className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="font-display font-semibold text-xs text-red-450 uppercase tracking-wider">
+              DANGER ZONE PROTOCOL
+            </h3>
+            <p className="text-[11px] text-slate-400 font-sans mt-0.5">
+              Actions in this registry are permanent and cannot be undone. Account deletion clears all server nodes.
+            </p>
+          </div>
+        </div>
+
+        <div className="pt-3 border-t border-red-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <span className="font-display font-medium text-xs text-slate-200">Delete Companion Account Registry</span>
+            <p className="text-[11px] text-slate-450 font-sans leading-relaxed">
+              Permanently delete this user profile file, posts chronicle database entry, courses level records, completed tasks, and authentication credentials.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setDeletionReason('');
+              setDeleteError('');
+              setIsDeleteModalOpen(true);
+            }}
+            id="open-delete-account-modal-btn"
+            className="px-5 py-2 rounded-xl border border-red-500/40 bg-red-500/5 hover:bg-red-500/15 text-red-400 hover:text-red-300 font-mono text-[11px] uppercase transition-all duration-150 cursor-pointer text-center shrink-0"
+          >
+            DELETE ACCOUNT
+          </button>
+        </div>
+      </div>
+
+      {/* ACCOUNT DELETION CONFIRMATION DIALOG MODAL */}
+      <AnimatePresence>
+        {isDeleteModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md rounded-xl bg-[#0a0914] border border-red-500/30 p-6 relative overflow-hidden backdrop-blur-xl shadow-2xl"
+            >
+              <div className="flex flex-col gap-4 text-center items-center">
+                <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 animate-pulse">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="font-display font-semibold text-xs uppercase text-slate-100 tracking-wider">
+                    DELETE YOUR ACCOUNT?
+                  </h3>
+                  <p className="text-[11.5px] text-slate-400 leading-relaxed font-sans">
+                    Are you sure you want to delete your account? All progress, streak scores, published progress chronicle posts, and custom courses will be wiped forever from the datastore.
+                  </p>
+                </div>
+
+                {/* Optional Reason Text field */}
+                <div className="w-full text-left space-y-1.5 mt-2">
+                  <label className="text-[9.5px] font-mono text-slate-500 uppercase block">
+                    Why are you leaving? (Optional reason):
+                  </label>
+                  <textarea
+                    value={deletionReason}
+                    onChange={(e) => setDeletionReason(e.target.value)}
+                    placeholder="Enter reason or feedback..."
+                    rows={2}
+                    className="w-full px-3.5 py-2 rounded-lg bg-black/50 border border-slate-800 text-[11px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-red-500 outline-none resize-none font-sans"
+                    disabled={isDeleting}
+                  />
+                </div>
+
+                {deleteError && (
+                  <p className="text-[10px] font-mono text-red-400 mt-1 uppercase w-full text-left bg-red-500/5 p-2 rounded border border-red-500/10">
+                    {deleteError}
+                  </p>
+                )}
+
+                <div className="flex gap-3 w-full pt-3 border-t border-white/5 mt-2">
+                  <button
+                    onClick={() => setIsDeleteModalOpen(false)}
+                    disabled={isDeleting}
+                    className="flex-1 px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-850 hover:border-slate-700 text-slate-400 hover:text-white rounded-lg text-xs font-mono transition-all lowercase"
+                  >
+                    [cancel]
+                  </button>
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={isDeleting}
+                    className="flex-1 px-4 py-2 bg-red-650 hover:bg-red-600 border border-red-550 text-white rounded-lg text-xs font-display font-medium transition-all uppercase disabled:opacity-50"
+                  >
+                    {isDeleting ? 'DELETING...' : 'YES, DELETE ACCOUNT'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }

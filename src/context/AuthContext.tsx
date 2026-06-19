@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
@@ -6,11 +6,13 @@ import {
   signInWithPopup, 
   GoogleAuthProvider,
   sendEmailVerification,
+  sendPasswordResetEmail,
   User as FirebaseUser
 } from 'firebase/auth';
 import { auth, isFirebaseEnabled } from '../lib/firebase';
 import { UserProfile } from '../types';
 import { stateService } from '../lib/stateService';
+import { validateUsername } from '../lib/usernameValidator';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -24,6 +26,8 @@ interface AuthContextType {
   resendVerification: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   setProfileAvatar: (avatarUrl: string) => Promise<void>;
+  sendPasswordReset: (email: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -34,17 +38,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [localAuthId, setLocalAuthId] = useState<string | null>(() => localStorage.getItem('anavare_auth_uid'));
   const [loading, setLoading] = useState(true);
 
+  const isRegisteringRef = useRef(false);
+
   const activeUid = isFirebaseEnabled ? (firebaseUser?.uid || null) : localAuthId;
 
   // Listen to Firebase Auth state change only
   useEffect(() => {
     console.log("[AuthContext INFO] Initializing onAuthStateChanged. isFirebaseEnabled:", isFirebaseEnabled);
     if (isFirebaseEnabled && auth) {
-      const unsubAuth = auth.onAuthStateChanged((fUser) => {
+      const unsubAuth = auth.onAuthStateChanged(async (fUser) => {
         console.log("[AuthContext INFO] onAuthStateChanged fired. User:", fUser ? fUser.email : "null", "UID:", fUser?.uid);
         
-        // Always sync the firebaseUser reference
-        setFirebaseUser(fUser);
+        if (fUser && !isRegisteringRef.current) {
+          try {
+            await fUser.reload();
+          } catch (e) {
+            console.warn("[AuthContext WARNING] Could not reload user on check:", e);
+          }
+        }
+
+        // Always sync the firebaseUser reference stable and correct
+        setFirebaseUser(auth.currentUser || fUser);
         
         if (!fUser) {
           console.log("[AuthContext SUCCESS] No Firebase session found. Resetting state.");
@@ -70,62 +84,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     console.log("[AuthContext INFO] Subscription Effect evaluation. activeUid:", activeUid, "firebaseUser UID:", firebaseUser?.uid);
 
-    if (activeUid) {
-      console.log("[AuthContext INFO] Player activeUid detected. Starting subscription & setting loading=true");
-      setLoading(true);
-      
-      unsubscribeUser = stateService.subscribeToUser(activeUid, async (profile) => {
-        if (!active) {
-          console.log("[AuthContext INFO] Subscription fired after unmount. Ignoring update.");
-          return;
-        }
+    const uid = activeUid;
+    // Safeguard: Only run onSnapshot when uid exists
+    if (!uid) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
 
-        console.log("[AuthContext INFO] subscribeToUser snapshot emitted. Profile retrieved:", profile ? profile.username : "null");
+    // Do not subscribe if registration is active
+    if (isRegisteringRef.current) {
+      return;
+    }
 
-        if (profile) {
-          console.log("[AuthContext SUCCESS] Profile loaded successfully for user:", profile.username);
-          setUser(profile);
-          setLoading(false);
-        } else if (isFirebaseEnabled && firebaseUser) {
-          console.log("[AuthContext WARNING] Profile does not exist yet for Firebase User:", firebaseUser.uid, "Creating default profile...");
-          try {
-            const usernameOfEmail = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Warrior';
-            const newProf = await stateService.createUserProfile({
-              id: firebaseUser.uid,
-              username: usernameOfEmail,
-              email: firebaseUser.email || '',
-              avatar: firebaseUser.photoURL || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&q=80',
-            });
-            
-            if (active) {
-              console.log("[AuthContext SUCCESS] Default profile created successfully in state:", newProf.username);
-              setUser(newProf);
-            }
-          } catch (err) {
-            console.error('[AuthContext ERROR] Failed to create user profile dynamically in Firestore:', err);
-          } finally {
-            if (active) {
-              setLoading(false);
-            }
-          }
-        } else {
-          console.log("[AuthContext WARNING] No snapshot profile and not live Firebase session. Cleaning up emulator state.");
+    if (isFirebaseEnabled && auth) {
+      // Guard: Wait for the Firebase Auth client session to fully propagate
+      if (!auth.currentUser || auth.currentUser.uid !== uid) {
+        console.log("[AuthContext INFO] Postponing Firestore subscription, auth.currentUser mismatch or not settled yet.");
+        return;
+      }
+    }
+
+    console.log("[AuthContext INFO] Player activeUid verified. Starting safe subscription & setting loading=true");
+    setLoading(true);
+    
+    unsubscribeUser = stateService.subscribeToUser(uid, async (profile) => {
+      if (!active) {
+        console.log("[AuthContext INFO] Subscription fired after unmount. Ignoring update.");
+        return;
+      }
+
+      console.log("[AuthContext INFO] subscribeToUser snapshot emitted. Profile retrieved:", profile ? profile.username : "null");
+
+      if (profile) {
+        console.log("[AuthContext SUCCESS] Profile loaded successfully for user:", profile.username);
+        setUser(profile);
+        setLoading(false);
+      } else {
+        console.warn("[AuthContext WARNING] Snapshot user profile is empty (null) for UID:", uid);
+        
+        if (!isFirebaseEnabled) {
+          console.log("[AuthContext INFO] Dynamic local cleanup sequence triggered.");
           localStorage.removeItem('anavare_auth_uid');
           if (active) {
             setLocalAuthId(null);
             setUser(null);
             setLoading(false);
           }
+        } else {
+          if (active) {
+            setLoading(false);
+          }
         }
-      });
-    } else {
-      console.log("[AuthContext INFO] No active Uid found. Clearing user and setting loading=false.");
-      setUser(null);
-      setLoading(false);
-    }
+      }
+    });
 
     return () => {
-      console.log("[AuthContext INFO] Cleaning up active subscriber for:", activeUid || "none");
+      console.log("[AuthContext INFO] Cleaning up active subscriber for:", uid);
       active = false;
       if (unsubscribeUser) {
         unsubscribeUser();
@@ -141,6 +156,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log("[AuthContext INFO] Authenticating with Live Firebase...");
         const result = await signInWithEmailAndPassword(auth, email, pass);
         console.log("[AuthContext SUCCESS] Firebase authentication completed.", result.user.uid);
+        
+        // After login, reload Firebase user to get correct emailVerified state but keep session intact
+        await result.user.reload();
+        setFirebaseUser(auth.currentUser);
       } else {
         console.log("[AuthContext INFO] Authenticating with Local Emulator database...");
         const users = JSON.parse(localStorage.getItem('anavare_users') || '{}');
@@ -162,34 +181,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const registerWithEmail = async (username: string, email: string, pass: string) => {
     console.log("[AuthContext ACTION] User submitted Registration. Username:", username, "Email:", email);
+    
+    if (!validateUsername(username)) {
+      throw new Error("This username is not allowed. Please choose another one.");
+    }
+
     setLoading(true);
+    isRegisteringRef.current = true;
     try {
       if (isFirebaseEnabled && auth) {
         console.log("[AuthContext INFO] Creating credentials on Live Firebase auth...");
-        const credentials = await createUserWithEmailAndPassword(auth, email, pass);
-        if (credentials.user) {
-          console.log("[AuthContext SUCCESS] Live Firebase credentials created. Provisioning user profile document in Firestore...");
+        let credentials;
+        try {
+          credentials = await createUserWithEmailAndPassword(auth, email, pass);
+        } catch (firebaseErr: any) {
+          if (firebaseErr && (firebaseErr.code === 'auth/email-already-in-use' || String(firebaseErr.message || '').includes('email-already-in-use'))) {
+            throw new Error("An account with this email already exists.");
+          }
+          throw firebaseErr;
+        }
+
+        if (credentials && credentials.user) {
+          const user = credentials.user;
+          console.log("[AuthContext SUCCESS] Live Firebase credentials created for user CID:", user.uid);
+          
+          // Wait for auth to transition and sync with current user state explicitly if delayed
+          let syncWait = 0;
+          while (syncWait < 20 && (!auth.currentUser || auth.currentUser.uid !== user.uid)) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            syncWait++;
+          }
+
+          // Force Firebase Auth to initialize and cache the initial ID Token
+          // This ensures that downstream SDK calls recognize the authenticated context
+          await user.getIdToken(true);
+          
+          // Introduce a strategic, controlled brief delay (800ms) to allow 
+          // the Auth context session state to fully propagate to the local Firestore instance client.
+          // This guarantees request.auth.uid !== null when writing `/users/{userId}`.
+          await new Promise((resolve) => setTimeout(resolve, 800));
+
+          console.log("[AuthContext INFO] Handshaking active. Proceeding with user profile document provisioning in Firestore...");
+
           // We immediately write the custom username specified during registration to ensure accuracy
           const newProfile = await stateService.createUserProfile({
-            id: credentials.user.uid,
+            id: user.uid,
             username: username.trim() || 'Warrior',
             email: email.trim(),
             avatar: 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?w=150&q=80',
           });
-          console.log("[AuthContext SUCCESS] Firestore profile created:", newProfile);
+          console.log("[AuthContext SUCCESS] Firestore profile created successfully:", newProfile);
           
           try {
-            await sendEmailVerification(credentials.user);
+            await sendEmailVerification(user);
             console.log("[AuthContext SUCCESS] Verification protocol dispatched.");
           } catch (verifErr) {
             console.warn("[AuthContext WARNING] Dispatched email protocol warning:", verifErr);
           }
+
+          setFirebaseUser(user);
         }
       } else {
         console.log("[AuthContext INFO] Registrating custom user inside Emulator Database...");
         const users = JSON.parse(localStorage.getItem('anavare_users') || '{}');
         if (Object.values(users).some((u: any) => u.email === email)) {
-          throw new Error('E-mail already exists in local database!');
+          throw new Error('An account with this email already exists.');
         }
         
         const customUid = 'user_' + Math.random().toString(36).substring(2, 11);
@@ -207,6 +263,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("[AuthContext ERROR] Registration failed:", err);
       setLoading(false);
       throw err;
+    } finally {
+      isRegisteringRef.current = false;
     }
   };
 
@@ -218,14 +276,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log("[AuthContext INFO] Initializing Firebase Standard Google Auth Popup...");
         const provider = new GoogleAuthProvider();
         const credentials = await signInWithPopup(auth, provider);
-        console.log("[AuthContext SUCCESS] Google pop-up credentials received:", credentials.user.uid);
+        const user = credentials.user;
+        console.log("[AuthContext SUCCESS] Google pop-up credentials received:", user.uid);
+        
+        // Wait for token synchronization
+        await user.getIdToken(true);
+
+        // Check if user profile already exists. SINGLE SOURCE OF TRUTH.
+        const existingProfile = await stateService.getStaticUserProfile(user.uid);
+        if (!existingProfile) {
+          console.log("[AuthContext INFO] No existing Firestore profile found for Google user. Provisioning new profile now...");
+          const usernameOfEmail = user.displayName || user.email?.split('@')[0] || 'Warrior';
+          await stateService.createUserProfile({
+            id: user.uid,
+            username: usernameOfEmail.trim(),
+            email: user.email || '',
+            avatar: user.photoURL || 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?w=150&q=80',
+          });
+          console.log("[AuthContext SUCCESS] Google user profile created in Firestore successfully.");
+        } else {
+          console.log("[AuthContext INFO] Existing Firestore profile found for Google user. Profile creation skipped.");
+        }
       } else {
         console.log("[AuthContext INFO] Emulating Google login connection...");
         localStorage.setItem('anavare_auth_uid', 'mock_hero_id');
         setLocalAuthId('mock_hero_id');
       }
     } catch (err) {
-      console.error("[AuthContext ERROR] Google link failure:", err);
+      console.error("[AuthContext ERROR] Google login failed:", err);
       setLoading(false);
       throw err;
     }
@@ -271,6 +349,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const sendPasswordReset = async (email: string) => {
+    if (!email || !email.trim()) {
+      throw new Error("Email address is required.");
+    }
+    if (isFirebaseEnabled && auth) {
+      try {
+        await sendPasswordResetEmail(auth, email.trim());
+      } catch (err) {
+        console.warn("[AuthContext WARNING] Firebase sendPasswordResetEmail failed internally:", err);
+        throw err;
+      }
+    } else {
+      console.log(`[AuthContext SIMULATED] Password reset email dispatched to ${email.trim()}`);
+    }
+  };
+
+  const forgotPassword = async (email: string) => {
+    await sendPasswordReset(email);
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -283,7 +381,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       resendVerification,
       refreshProfile,
-      setProfileAvatar
+      setProfileAvatar,
+      sendPasswordReset,
+      forgotPassword
     }}>
       {children}
     </AuthContext.Provider>

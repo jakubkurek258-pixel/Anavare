@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { stateService, getXpReward } from '../lib/stateService';
-import { RPGTask, TaskCategory, TaskDifficulty } from '../types';
+import { RPGTask, TaskCategory, TaskDifficulty, RPGPost } from '../types';
 import { getUserRank } from '../lib/rankSystem';
 import AvatarImage from './AvatarImage';
 import { 
   Zap, Plus, Calendar, CheckSquare, Dumbbell, Award, 
   Trash2, Flame, RefreshCw, Layers, ShieldCheck, Heart, 
-  BookOpen, Coins, CircleCheck
+  BookOpen, Coins, CircleCheck, MessageSquare, Send, ArrowRight, Sparkles
 } from 'lucide-react';
 
-export default function DashboardView() {
+export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home' | 'progress' | 'community' | 'profile', subTab?: string) => void }) {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<RPGTask[]>([]);
   const [taskTitle, setTaskTitle] = useState('');
@@ -21,6 +21,13 @@ export default function DashboardView() {
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // New state requirements for Home / Dashboard screen
+  const [posts, setPosts] = useState<RPGPost[]>([]);
+  const [isFeedLoading, setIsFeedLoading] = useState(true);
+  const [quickPostContent, setQuickPostContent] = useState('');
+  const [isPosting, setIsPosting] = useState(false);
+  const [quickPostError, setQuickPostError] = useState<string | null>(null);
+
   // Load and subscribe to tasks
   useEffect(() => {
     if (!user) return;
@@ -29,6 +36,16 @@ export default function DashboardView() {
     });
     return unsub;
   }, [user]);
+
+  // Subscribe to community post feed for preview
+  useEffect(() => {
+    setIsFeedLoading(true);
+    const unsub = stateService.subscribeToPosts((feed) => {
+      setPosts(feed);
+      setIsFeedLoading(false);
+    });
+    return unsub;
+  }, []);
 
   if (!user) {
     return (
@@ -191,6 +208,28 @@ export default function DashboardView() {
     setTimeout(() => {
       setIsSubmitting(false);
     }, 1000);
+  };
+
+  const handleQuickPost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickPostContent.trim()) return;
+    setIsPosting(true);
+    setQuickPostError(null);
+    try {
+      await stateService.createSocialPost(
+        user.id,
+        user.username,
+        user.avatar,
+        quickPostContent.trim(),
+        null
+      );
+      setQuickPostContent('');
+    } catch (err: any) {
+      console.error("[Dashboard Quick Post ERROR]", err);
+      setQuickPostError(err?.message || 'Error occurred during transmit sequence.');
+    } finally {
+      setIsPosting(false);
+    }
   };
 
   const handleCompleteTask = async (id: string) => {
@@ -657,6 +696,97 @@ export default function DashboardView() {
             <span>{pendingTasks.length} PENDING OBJECTIVES</span>
           </div>
 
+        </div>
+
+        {/* VANGUARD BROADCAST PREVIEW */}
+        <div className="p-5 rounded-xl bg-white/5 border border-white/10 flex flex-col gap-4">
+          <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="w-4.5 h-4.5 text-purple-400" />
+              <h3 className="font-display font-semibold text-sm tracking-wide text-slate-200 uppercase">
+                LATEST COMMUNITY BROADCASTS
+              </h3>
+            </div>
+            {onNavigate && (
+              <button 
+                onClick={() => onNavigate('community', 'feed')}
+                className="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer outline-none bg-none border-none p-0"
+              >
+                Go to Feed <ArrowRight className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Post Box first */}
+          <form onSubmit={handleQuickPost} className="p-3 bg-black/45 rounded-lg border border-slate-900/60 flex gap-2">
+            <input 
+              type="text"
+              required
+              value={quickPostContent}
+              onChange={(e) => setQuickPostContent(e.target.value)}
+              placeholder="Deploy a quick transmission directly to feed..."
+              className="flex-1 px-3 py-1.5 rounded bg-black/40 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors outline-none font-sans"
+              disabled={isPosting}
+            />
+            <button
+              type="submit"
+              disabled={isPosting || !quickPostContent.trim()}
+              className="px-3.5 rounded h-[29px] bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-mono text-[9px] uppercase font-bold tracking-wider transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer flex items-center gap-1.5"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>{isPosting ? 'SENDING...' : 'POST'}</span>
+            </button>
+          </form>
+
+          {quickPostError && (
+            <span className="text-[10px] font-mono text-pink-400 -mt-2 px-1">
+              ⚠️ {quickPostError}
+            </span>
+          )}
+
+          {/* Preview list */}
+          <div className="space-y-3">
+            {isFeedLoading ? (
+              <div className="text-center py-4 text-xs font-mono text-slate-500 animate-pulse">
+                SYNCING BROADCAST CORE...
+              </div>
+            ) : posts.length === 0 ? (
+              <div className="text-center py-4 text-[10px] font-mono text-slate-600">
+                TRANS-SPACE QUIET. NO SHOUTS SIGNALED YET.
+              </div>
+            ) : (
+              posts.slice(0, 3).map((post) => (
+                <div key={post.id} className="p-3 bg-white/[0.02] border border-white/5 rounded-lg flex items-start gap-2.5 hover:bg-white/[0.04] transition-all">
+                  <div className="w-7 h-7 rounded overflow-hidden border border-slate-800 shrink-0 mt-0.5">
+                    <AvatarImage 
+                      src={post.authorAvatar} 
+                      alt={post.authorName} 
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-display font-bold text-[10.5px] text-slate-200">{post.authorName}</span>
+                      <span className="text-[8px] font-mono text-slate-500">
+                        {new Date(post.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1 line-clamp-2 leading-relaxed">
+                      {post.content}
+                    </p>
+                    <div className="flex items-center gap-3.5 mt-1.5 text-[9px] font-mono text-slate-500">
+                      <span className="flex items-center gap-0.5">
+                        ❤️ {post.likesCount}
+                      </span>
+                      <span className="flex items-center gap-0.5">
+                        💬 {post.commentsCount} comments
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
       </div>

@@ -18,7 +18,7 @@ import {
   writeBatch,
   runTransaction
 } from 'firebase/firestore';
-import { db, isFirebaseEnabled, OperationType, handleFirestoreError, storage } from './firebase';
+import { db, auth, isFirebaseEnabled, OperationType, handleFirestoreError, storage } from './firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   UserProfile, 
@@ -35,6 +35,7 @@ import {
   Lesson
 } from '../types';
 import { BADGE_LIBRARY, COMPANIONS_AVATARS, SAMPLE_COURSES } from '../data/rpgAssets';
+import { containsBadWord } from './usernameValidator';
 
 // Helper to protect Firebase async actions from network hanging indefinitely
 function withTimeout<T>(promise: Promise<T>, timeoutMs = 10000): Promise<T> {
@@ -44,6 +45,51 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs = 10000): Promise<T> {
       setTimeout(() => reject(new Error('Firebase network transmission timeout.')), timeoutMs)
     )
   ]);
+}
+
+// Helper to wait for Firebase Auth state to be fully resolved
+function waitForAuthUser(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if (!isFirebaseEnabled) {
+      resolve(null);
+      return;
+    }
+    if (!auth) {
+      reject(new Error('Firebase Authentication is not available.'));
+      return;
+    }
+    if (auth.currentUser) {
+      resolve(auth.currentUser);
+      return;
+    }
+    
+    let resolved = false;
+    const unsubscribe = auth.onAuthStateChanged((user: any) => {
+      if (!resolved) {
+        resolved = true;
+        unsubscribe();
+        if (user) {
+          resolve(user);
+        } else {
+          reject(new Error('Authentication required: No currentUser is logged in.'));
+        }
+      }
+    }, (err: any) => {
+      if (!resolved) {
+        resolved = true;
+        unsubscribe();
+        reject(err);
+      }
+    });
+
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        unsubscribe();
+        reject(new Error('Firebase Auth initialization timed out.'));
+      }
+    }, 5000);
+  });
 }
 
 // Fallback in-memory and LocalStorage structures for full offline simulation in sandboxed containers
@@ -811,9 +857,12 @@ export const stateService = {
 
     if (isFirebaseEnabled) {
       try {
+        console.log(`[stateService INFO] Writing user profile for UID: ${user.id} to Firestore...`);
         await setDoc(doc(db, 'users', user.id), freshProfile);
         await syncToLeaderboard(user.id, freshProfile);
+        console.log(`[stateService SUCCESS] User profile written to Firestore for UID: ${user.id}`);
       } catch (err) {
+        console.error(`[stateService FATAL] Profile creation failed for UID: ${user.id}. Err:`, err);
         handleFirestoreError(err, OperationType.CREATE, `users/${user.id}`);
       }
     } else {
@@ -1027,6 +1076,174 @@ export const stateService = {
     }
   },
 
+  async deleteSocialPost(postId: string, userId: string): Promise<void> {
+    if (isFirebaseEnabled) {
+      try {
+        const postRef = doc(db, 'posts', postId);
+        const postDoc = await getDoc(postRef);
+        if (postDoc.exists()) {
+          const postData = postDoc.data() as RPGPost;
+          const authorId = postData.authorId || postData.userId;
+          if (authorId !== userId) {
+            throw new Error('Unauthorized: You are not the author of this post.');
+          }
+          await deleteDoc(postRef);
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `posts/${postId}`);
+      }
+    } else {
+      const list: RPGPost[] = JSON.parse(localStorage.getItem('anavare_posts') || '[]');
+      const filtered = list.filter(p => p.id !== postId);
+      localRPG.writePosts(filtered);
+    }
+  },
+
+  async deleteCourse(courseId: string, userId: string): Promise<void> {
+    if (isFirebaseEnabled) {
+      try {
+        const courseRef = doc(db, 'courses', courseId);
+        const courseDoc = await getDoc(courseRef);
+        if (courseDoc.exists()) {
+          const courseData = courseDoc.data() as Course;
+          if (courseData.creatorId !== userId) {
+            throw new Error('Unauthorized: You are not the creator of this course.');
+          }
+          await deleteDoc(courseRef);
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `courses/${courseId}`);
+      }
+    } else {
+      const courses: Course[] = JSON.parse(localStorage.getItem('anavare_custom_courses') || '[]');
+      const filtered = courses.filter(c => c.id !== courseId);
+      localStorage.setItem('anavare_custom_courses', JSON.stringify(filtered));
+      localRPG.notify('courses:custom');
+    }
+  },
+
+  async deleteAccount(userId: string, reason?: string): Promise<void> {
+    console.log(`[Account Deletion] Initiating deletion sequence for User ${userId}. Reason provided: ${reason || 'None'}`);
+
+    if (isFirebaseEnabled) {
+      try {
+        const batch = writeBatch(db);
+
+        // 1. Log the deletion reason under the 'deletion_reasons' collection
+        if (reason && reason.trim()) {
+          const reasonId = 'reason_' + Math.random().toString(36).substring(2, 11);
+          const reasonRef = doc(db, 'deletion_reasons', reasonId);
+          batch.set(reasonRef, {
+            id: reasonId,
+            userId,
+            reason: reason.trim(),
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        // 2. Query and delete all posts created by the user
+        const postsQ = query(collection(db, 'posts'), where('userId', '==', userId));
+        const postsSnapshot = await getDocs(postsQ);
+        postsSnapshot.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+
+        // 3. Query and delete all courses created/owned by the user
+        const coursesQ = query(collection(db, 'courses'), where('creatorId', '==', userId));
+        const coursesSnapshot = await getDocs(coursesQ);
+        coursesSnapshot.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+
+        // 4. Query and delete all userLessons completed trackers
+        const userLessonsQ = query(collection(db, 'userLessons'), where('userId', '==', userId));
+        const userLessonsSnapshot = await getDocs(userLessonsQ);
+        userLessonsSnapshot.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+
+        // 5. Query and delete all tasks linked to this user
+        const tasksQ = query(collection(db, 'tasks'), where('userId', '==', userId));
+        const tasksSnapshot = await getDocs(tasksQ);
+        tasksSnapshot.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+
+        // 6. Query and delete all notifications linked to this user
+        const notificationsQ = query(collection(db, 'notifications'), where('userId', '==', userId));
+        const notificationsSnapshot = await getDocs(notificationsQ);
+        notificationsSnapshot.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+
+        // 7. Delete leaderboard entry
+        const leaderboardRef = doc(db, 'leaderboard', userId);
+        const lDoc = await getDoc(leaderboardRef);
+        if (lDoc.exists()) {
+          batch.delete(leaderboardRef);
+        }
+
+        // 8. Delete user profile document
+        const userRef = doc(db, 'users', userId);
+        batch.delete(userRef);
+
+        // Commit all deletions
+        await batch.commit();
+
+        // 9. Fully delete authentication user account from Firebase
+        const currentUser = auth?.currentUser;
+        if (currentUser && currentUser.uid === userId) {
+          try {
+            await currentUser.delete();
+          } catch (authErr) {
+            console.warn('[Account Deletion] Auth credential deletion requires fresh login or is not direct:', authErr);
+            // If it fails (e.g. requires re-authentication or is disabled), we still sign out
+            await auth?.signOut();
+          }
+        } else {
+          await auth?.signOut();
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `users/${userId}/account`);
+      }
+    } else {
+      // Offline local storage cleanup
+      const users = JSON.parse(localStorage.getItem('anavare_users') || '{}');
+      if (users[userId]) {
+        delete users[userId];
+        localStorage.setItem('anavare_users', JSON.stringify(users));
+      }
+
+      // Remove posts
+      const posts: RPGPost[] = JSON.parse(localStorage.getItem('anavare_posts') || '[]');
+      const filteredPosts = posts.filter(p => p.userId !== userId && p.authorId !== userId);
+      localStorage.setItem('anavare_posts', JSON.stringify(filteredPosts));
+
+      // Remove custom courses
+      const courses: Course[] = JSON.parse(localStorage.getItem('anavare_custom_courses') || '[]');
+      const filteredCourses = courses.filter(c => c.creatorId !== userId);
+      localStorage.setItem('anavare_custom_courses', JSON.stringify(filteredCourses));
+
+      // Remove private tasks
+      const tasks: RPGTask[] = JSON.parse(localStorage.getItem('anavare_tasks') || '[]');
+      const filteredTasks = tasks.filter(t => t.userId !== userId);
+      localStorage.setItem('anavare_tasks', JSON.stringify(filteredTasks));
+
+      // Remove notifications
+      const notifications: RPGNotification[] = JSON.parse(localStorage.getItem('anavare_notifications') || '[]');
+      const filteredNotifications = notifications.filter(n => n.userId !== userId);
+      localStorage.setItem('anavare_notifications', JSON.stringify(filteredNotifications));
+
+      // Delete active user tracking
+      localStorage.removeItem('anavare_current_user_id');
+
+      // Trigger change
+      localRPG.notify('users:change');
+      localRPG.notify('posts:feed');
+      localRPG.notify('courses:custom');
+    }
+  },
+
   // -----------------------------------------
   // SOCIAL FEED MODULE
   // -----------------------------------------
@@ -1048,13 +1265,36 @@ export const stateService = {
   },
 
   async createSocialPost(userId: string, authorName: string, authorAvatar: string, content: string, imageUrl?: string | null): Promise<void> {
+    const trimmedContent = content.trim();
+    if (!trimmedContent) {
+      throw new Error('Validation Error: Content cannot be empty.');
+    }
+
+    if (containsBadWord(trimmedContent)) {
+      throw new Error('This content is not allowed.');
+    }
+
     const postId = 'post_' + Math.random().toString(36).substring(2, 11);
+    
+    let finalUserId = userId;
+    let finalAuthorId = userId;
+
+    if (isFirebaseEnabled) {
+      const currentUser = await waitForAuthUser();
+      if (!currentUser) {
+        throw new Error('Authentication state unresolved or missing.');
+      }
+      finalUserId = currentUser.uid;
+      finalAuthorId = currentUser.uid;
+    }
+
     const newPost: RPGPost = {
       id: postId,
-      userId,
+      userId: finalUserId,
+      authorId: finalAuthorId,
       authorName,
       authorAvatar,
-      content: content.trim(),
+      content: trimmedContent,
       imageUrl: imageUrl || null,
       likes: [],
       likesCount: 0,
@@ -1088,6 +1328,9 @@ export const stateService = {
   async updateSocialPost(postId: string, userId: string, fields: { content?: string, imageUrl?: string | null }): Promise<void> {
     if (!userId) {
       throw new Error('Authentication required.');
+    }
+    if (fields.content !== undefined && containsBadWord(fields.content)) {
+      throw new Error('This content is not allowed.');
     }
     if (isFirebaseEnabled) {
       try {
@@ -1194,6 +1437,9 @@ export const stateService = {
     content: string, 
     parentCommentId: string | null = null
   ): Promise<void> {
+    if (containsBadWord(content)) {
+      throw new Error('This content is not allowed.');
+    }
     const commentId = 'comment_' + Math.random().toString(36).substring(2, 11);
     const newComment: RPGComment = {
       id: commentId,

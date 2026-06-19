@@ -5,7 +5,6 @@ export const COMPANIONS_AVATARS = [
   { id: 'av2', name: 'Neon Samurai', url: 'https://images.unsplash.com/photo-1549490349-8643362247b5?w=150&q=80' },
   { id: 'av3', name: 'Solar Mage', url: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?w=150&q=80' },
   { id: 'av4', name: 'Techno Valkyrie', url: 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?w=150&q=80' },
-  { id: 'av5', name: 'Digital Wanderer', url: 'https://images.unsplash.com/photo-1608889175123-8ec330b86f84?w=150&q=80' },
   { id: 'av6', name: 'Synthesized Sage', url: 'https://images.unsplash.com/photo-1563089145-599997674d42?w=150&q=80' }
 ];
 

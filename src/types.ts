@@ -67,6 +67,7 @@ export interface RPGComment {
 export interface RPGPost {
   id: string;
   userId: string;
+  authorId?: string;
   authorName: string;
   authorAvatar: string;
   content: string;

@@ -28,6 +28,21 @@ service cloud.firestore {
       return resource.data;
     }
 
+    function isValidText(text) {
+      return text is string 
+        && !text.lower().matches('.*(fuck|shit|bitch|cunt|kurwa|chuj|jebac|pizda|nigger).*')
+        && !text.lower().matches('.*(f u c k|s h i t|k u r w a|n i g g e r|n1gg4|f\\*ck|sh\\*t).*');
+    }
+
+    function isValidUsername(username) {
+      return username is string 
+        && username.size() >= 3 
+        && username.size() <= 20 
+        && username.matches('^[a-zA-Z0-9_]+$')
+        && !username.lower().matches('.*(admin|moderator|support).*')
+        && isValidText(username);
+    }
+
     // 1. Users collection
     // User profiles are clickable and public for social leaderboards and posts
     match /users/{userId} {
@@ -35,9 +50,12 @@ service cloud.firestore {
       allow create: if isOwner(userId) 
         && incoming().id == userId
         && incoming().level == 1
-        && incoming().xp == 0;
+        && incoming().xp == 0
+        && isValidUsername(incoming().username);
       allow update: if isOwner(userId)
-        && incoming().id == userId;
+        && incoming().id == userId
+        && (!incoming().keys().hasAny(['username']) || isValidUsername(incoming().username));
+      allow delete: if isOwner(userId);
     }
 
     // 2. Tasks collection
@@ -60,10 +78,11 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
         && incoming().userId == request.auth.uid
-        && incoming().id == postId;
+        && incoming().id == postId
+        && isValidText(incoming().content);
       allow update: if isSignedIn() && (
         // Action 1: Creator edit post
-        (existing().userId == request.auth.uid && incoming().userId == request.auth.uid) ||
+        (existing().userId == request.auth.uid && incoming().userId == request.auth.uid && isValidText(incoming().content)) ||
         // Action 2: Anyone likes or increments comment count
         (incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'likesCount', 'commentsCount']))
       );
@@ -75,7 +94,8 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
         && incoming().userId == request.auth.uid
-        && incoming().id == commentId;
+        && incoming().id == commentId
+        && isValidText(incoming().content);
       allow update: if isSignedIn() && existing().userId == request.auth.uid;
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
@@ -111,12 +131,19 @@ service cloud.firestore {
         && incoming().creatorId == request.auth.uid
         && incoming().id == courseId
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.level >= 10;
+      allow delete: if isSignedIn() && existing().creatorId == request.auth.uid;
     }
 
     // 8. Leaderboard collection
     match /leaderboard/{userId} {
       allow read: if isSignedIn();
       allow write: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // 9. Deletion reasons log (optional but saved in Firestore or logs)
+    match /deletion_reasons/{reasonId} {
+      allow create: if isSignedIn();
     }
   }
 }

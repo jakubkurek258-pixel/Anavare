@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Swords, Eye, Mail, Lock, Shield, Sparkles, UserPlus } from 'lucide-react';
 import { COMPANIONS_AVATARS } from '../data/rpgAssets';
+import { validateUsername } from '../lib/usernameValidator';
 
 interface LoginViewProps {
   initialIsSignUp?: boolean;
@@ -9,7 +10,7 @@ interface LoginViewProps {
 }
 
 export default function LoginView({ initialIsSignUp = false, onBackToLanding }: LoginViewProps) {
-  const { loginWithEmail, registerWithEmail, loginWithGoogle, isFirebase } = useAuth();
+  const { loginWithEmail, registerWithEmail, loginWithGoogle, isFirebase, forgotPassword } = useAuth();
   const [isSignUp, setIsSignUp] = useState(initialIsSignUp);
   
   // Form input states
@@ -21,6 +22,12 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
   const [errorText, setErrorText] = useState('');
   const [infoText, setInfoText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Forgot Password modal states
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetStatusText, setResetStatusText] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [resetLoading, setResetLoading] = useState(false);
 
   // Sign up companion select
   const [selectedAvatarIdx, setSelectedAvatarIdx] = useState(3); // Valkyrie default
@@ -36,6 +43,11 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
       if (isSignUp) {
         if (!username.trim()) {
           setErrorText('Please specify your RPG character name.');
+          setSubmitting(false);
+          return;
+        }
+        if (!validateUsername(username.trim())) {
+          setErrorText('This username is not allowed. Please choose another one.');
           setSubmitting(false);
           return;
         }
@@ -66,6 +78,29 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
       setErrorText(err.message || 'Google link connection coordinates offline.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleSendReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail.trim()) return;
+    setResetStatusText(null);
+    setResetLoading(true);
+    try {
+      await forgotPassword(resetEmail.trim());
+      setResetStatusText({
+        type: 'success',
+        message: 'Password reset email sent. Check your inbox.'
+      });
+    } catch (err: any) {
+      console.warn("[LoginView WARNING] forgotPassword failed:", err);
+      // Show requested safe message to avoid disclosing account existence
+      setResetStatusText({
+        type: 'success', // Show safe info message layout
+        message: 'If this account exists, a reset email has been sent.'
+      });
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -175,6 +210,21 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
                   className="w-full pl-9 pr-4 py-2 bg-black/50 rounded-lg border border-slate-800 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyber-blue outline-none"
                 />
               </div>
+              {!isSignUp && (
+                <div className="flex justify-end mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetEmail(email || '');
+                      setResetStatusText(null);
+                      setShowForgotModal(true);
+                    }}
+                    className="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 hover:underline transition-colors cursor-pointer outline-none"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
             </div>
 
           </div>
@@ -279,6 +329,72 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
         </div>
 
       </div>
+
+      {showForgotModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="relative w-full max-w-sm rounded-xl bg-[#09091e] border border-slate-800 p-6 shadow-[0_0_50px_rgba(0,0,0,0.9)] overflow-hidden">
+            {/* Glow accent top bar */}
+            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-indigo-500 to-pink-500"></div>
+
+            <div className="mb-4">
+              <h3 className="font-display font-black text-base uppercase text-glow-blue text-white tracking-wider flex items-center gap-1.5">
+                🌌 Recover Pass Key
+              </h3>
+              <p className="font-sans text-[11px] text-slate-400 mt-1">
+                Enter your registered contact coordinates below to transmit a secure reset password sequence.
+              </p>
+            </div>
+
+            {resetStatusText && (
+              <div className={`mb-4 p-3 rounded-lg text-xs flex items-start gap-2 border ${
+                resetStatusText.type === 'error' 
+                  ? 'bg-rose-950/20 border-rose-500/25 text-rose-300' 
+                  : 'bg-emerald-950/20 border-emerald-500/25 text-emerald-300'
+              }`}>
+                <span className="shrink-0">
+                  {resetStatusText.type === 'error' ? '⚠️' : '✓'}
+                </span>
+                <span className="font-sans leading-normal">{resetStatusText.message}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSendReset} className="space-y-4">
+              <div>
+                <label className="block text-[9px] font-mono uppercase text-slate-400 mb-1">EMAIL ADDRESS</label>
+                <div className="relative">
+                  <Mail className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-600" />
+                  <input
+                    type="email"
+                    required
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    placeholder="Enter email address..."
+                    className="w-full pl-9 pr-4 py-2 bg-black/60 rounded-lg border border-slate-800 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyber-blue outline-none animate-pulse-subtle"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowForgotModal(false)}
+                  className="flex-1 py-2 rounded-lg border border-slate-800 hover:border-slate-700 bg-transparent text-slate-400 hover:text-white font-mono text-[10px] uppercase font-bold tracking-wider transition-all cursor-pointer outline-none"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  className="flex-1 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-mono text-[10px] uppercase font-bold tracking-wider transition-all cursor-pointer shadow-[0_0_10px_rgba(99,102,241,0.35)] disabled:opacity-40 outline-none"
+                >
+                  {resetLoading ? 'TRANSMITTING...' : 'SEND RESET'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

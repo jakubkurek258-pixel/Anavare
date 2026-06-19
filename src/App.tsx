@@ -17,28 +17,97 @@ import {
 } from 'lucide-react';
 
 function MasterGameConsole() {
-  const { user, logout, isFirebase } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'skills' | 'courses' | 'social' | 'leaderboard' | 'profile'>('dashboard');
+  const { user, logout, isFirebase, firebaseUser, resendVerification } = useAuth();
+  const [activeTab, setActiveTab] = useState<'home' | 'progress' | 'community' | 'profile'>('home');
+  const [progressSubTab, setProgressSubTab] = useState<'skills' | 'academy'>('skills');
+  const [communitySubTab, setCommunitySubTab] = useState<'feed' | 'leaderboard'>('feed');
   const [showAvatarPrompt, setShowAvatarPrompt] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [isSendingVerification, setIsSendingVerification] = useState(false);
 
   if (!user) return null;
 
+  const handleNavigate = (tab: 'home' | 'progress' | 'community' | 'profile', subTab?: string) => {
+    setActiveTab(tab);
+    if (tab === 'progress' && subTab) {
+      setProgressSubTab(subTab as 'skills' | 'academy');
+    } else if (tab === 'community' && subTab) {
+      setCommunitySubTab(subTab as 'feed' | 'leaderboard');
+    }
+  };
+
   const renderActiveView = () => {
     switch (activeTab) {
-      case 'dashboard': 
-        return <DashboardView />;
-      case 'skills': 
-        return <SkillProgressView />;
-      case 'courses': 
-        return <CoursesView />;
-      case 'social': 
-        return <SocialFeedView />;
-      case 'leaderboard': 
-        return <LeaderboardView />;
+      case 'home': 
+        return <DashboardView onNavigate={handleNavigate} />;
+      case 'progress': 
+        return (
+          <div className="flex flex-col gap-6">
+            {/* PROGRESS sub-tab segmented control */}
+            <div className="flex bg-white/5 backdrop-blur-md p-1 border border-white/10 rounded-lg w-full max-w-sm select-none justify-evenly overflow-x-auto gap-1 self-start">
+              {[
+                { id: 'skills', label: 'Skill Trees', icon: <Compass className="w-3.5 h-3.5" /> },
+                { id: 'academy', label: 'Academy', icon: <GraduationCap className="w-3.5 h-3.5" /> }
+              ].map((subTab) => {
+                const isActive = progressSubTab === subTab.id;
+                return (
+                  <button
+                    key={subTab.id}
+                    onClick={() => setProgressSubTab(subTab.id as any)}
+                    className={`py-1.5 px-4 flex items-center gap-1.5 rounded-md font-display text-[11px] font-bold uppercase cursor-pointer transition-all outline-none ${
+                      isActive 
+                        ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' 
+                        : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                    }`}
+                  >
+                    {subTab.icon}
+                    <span>{subTab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            
+            <div className="transition-all duration-300">
+              {progressSubTab === 'skills' ? <SkillProgressView /> : <CoursesView />}
+            </div>
+          </div>
+        );
+      case 'community': 
+        return (
+          <div className="flex flex-col gap-6">
+            {/* COMMUNITY sub-tab segmented control */}
+            <div className="flex bg-white/5 backdrop-blur-md p-1 border border-white/10 rounded-lg w-full max-w-sm select-none justify-evenly overflow-x-auto gap-1 self-start">
+              {[
+                { id: 'feed', label: 'Community Feed', icon: <Users className="w-3.5 h-3.5" /> },
+                { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy className="w-3.5 h-3.5" /> }
+              ].map((subTab) => {
+                const isActive = communitySubTab === subTab.id;
+                return (
+                  <button
+                    key={subTab.id}
+                    onClick={() => setCommunitySubTab(subTab.id as any)}
+                    className={`py-1.5 px-4 flex items-center gap-1.5 rounded-md font-display text-[11px] font-bold uppercase cursor-pointer transition-all outline-none ${
+                      isActive 
+                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' 
+                        : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                    }`}
+                  >
+                    {subTab.icon}
+                    <span>{subTab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            
+            <div className="transition-all duration-300">
+              {communitySubTab === 'feed' ? <SocialFeedView /> : <LeaderboardView />}
+            </div>
+          </div>
+        );
       case 'profile': 
         return <ProfileView />;
       default: 
-        return <DashboardView />;
+        return <DashboardView onNavigate={handleNavigate} />;
     }
   };
 
@@ -134,16 +203,44 @@ function MasterGameConsole() {
           </div>
         )}
 
+        {/* UNVERIFIED EMAIL WARNING BANNER */}
+        {isFirebase && firebaseUser && !firebaseUser.emailVerified && (
+          <div className="p-3.5 bg-rose-950/25 border border-rose-500/20 text-rose-300 text-xs rounded-xl flex items-start justify-between gap-3 max-w-4xl">
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold font-display uppercase tracking-wider block text-[10px] text-rose-300 mb-0.5">Verification Warning</span>
+                <span className="text-slate-300">Your email is unverified. Check your inbox for the confirmation email to secure your profile!</span>
+              </div>
+            </div>
+            <button 
+              onClick={async () => {
+                setIsSendingVerification(true);
+                try {
+                  await resendVerification();
+                  setVerificationSent(true);
+                } catch (e) {
+                  console.error(e);
+                } finally {
+                  setIsSendingVerification(false);
+                }
+              }}
+              disabled={verificationSent || isSendingVerification}
+              className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-rose-300 rounded font-bold uppercase text-[10px] tracking-wider border border-rose-500/20 hover:border-rose-500/30 cursor-pointer select-none transition-all outline-none shrink-0"
+            >
+              {isSendingVerification ? 'Sending...' : verificationSent ? 'Sent!' : 'Resend'}
+            </button>
+          </div>
+        )}
+
         {/* TWO-TIER NAVIGATION BAR (TABS SELECTORS) */}
         {/* Responsive Desktop Side tabs or Top Tabs bar */}
         <div className="flex bg-white/5 backdrop-blur-md border border-white/10 p-1.5 rounded-xl w-full select-none justify-evenly overflow-x-auto gap-1">
           {[
-            { id: 'dashboard', label: 'Dashboard', icon: <Gamepad2 className="w-4.5 h-4.5" /> },
-            { id: 'skills', label: 'Skill Trees', icon: <Compass className="w-4.5 h-4.5" /> },
-            { id: 'courses', label: 'Academy', icon: <GraduationCap className="w-4.5 h-4.5" /> },
-            { id: 'social', label: 'Community Feed', icon: <Users className="w-4.5 h-4.5" /> },
-            { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy className="w-4.5 h-4.5" /> },
-            { id: 'profile', label: 'Profil', icon: <User className="w-4.5 h-4.5" /> }
+            { id: 'home', label: 'HOME', icon: <Gamepad2 className="w-4.5 h-4.5" /> },
+            { id: 'progress', label: 'PROGRESS', icon: <Compass className="w-4.5 h-4.5" /> },
+            { id: 'community', label: 'COMMUNITY', icon: <Users className="w-4.5 h-4.5" /> },
+            { id: 'profile', label: 'PROFILE', icon: <User className="w-4.5 h-4.5" /> }
           ].map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -151,7 +248,7 @@ function MasterGameConsole() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
                 id={`navigation-tab-selector-${tab.id}`}
-                className={`py-2 px-3 sm:px-5 flex items-center gap-2 rounded-lg font-display text-xs font-bold uppercase cursor-pointer transition-all outline-none ${
+                className={`py-2 px-4 sm:px-6 flex items-center gap-2 rounded-lg font-display text-xs font-bold uppercase cursor-pointer transition-all outline-none ${
                   isActive 
                     ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)]' 
                     : 'text-slate-400 hover:text-slate-200'
