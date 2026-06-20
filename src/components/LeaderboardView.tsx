@@ -199,6 +199,62 @@ export default function LeaderboardView() {
       {/* COLUMN RIGHT LEADERBOARD INFO PANEL */}
       <div className="lg:col-span-4 flex flex-col gap-5">
         
+        {/* NEW: COUNTDOWN & WEEKLY RESET SIMULATOR CHRONO */}
+        <div className="p-5 rounded-xl border border-white/10 bg-gradient-to-b from-[#120f26] to-black space-y-4">
+          <div className="flex items-center justify-between border-b border-white/5 pb-2">
+            <div className="flex items-center gap-2 text-indigo-400">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400"></span>
+              </span>
+              <h4 className="font-display font-medium text-xs uppercase tracking-wide">
+                RESET CHRONOMETER
+              </h4>
+            </div>
+            <span className="font-mono text-[8px] text-slate-500 uppercase">SYS SECURED</span>
+          </div>
+
+          <div className="space-y-1 text-center py-2.5">
+            <span className="text-[10px] text-slate-500 font-mono uppercase block">WEEKLY HIGHSCORE ROTATION REFIT</span>
+            <div className="flex justify-center gap-3.5 font-mono">
+              <div>
+                <span className="text-xl font-bold font-mono text-glow-blue text-white">03</span>
+                <span className="text-[8px] text-slate-500 block uppercase font-black">DAYS</span>
+              </div>
+              <span className="text-xl text-slate-600">:</span>
+              <div>
+                <span className="text-xl font-bold font-mono text-glow-blue text-white">14</span>
+                <span className="text-[8px] text-slate-500 block uppercase font-black">HRS</span>
+              </div>
+              <span className="text-xl text-slate-600">:</span>
+              <div>
+                <span className="text-xl font-bold font-mono text-glow-blue text-white">45</span>
+                <span className="text-[8px] text-slate-500 block uppercase font-black">MIN</span>
+              </div>
+              <span className="text-xl text-slate-600">:</span>
+              <div>
+                <span className="text-xl font-bold font-mono text-glow-blue text-white animate-pulse">22</span>
+                <span className="text-[8px] text-slate-500 block uppercase font-black">SEC</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg bg-black/40 border border-slate-900 text-[10.5px] font-sans text-slate-400 leading-normal">
+            Weekly highscore records reset in accordance with Sunday UTC synchrony. Ranks are compiled and premium badges are assigned to podium leaders.
+          </div>
+
+          <button
+            onClick={() => {
+              const winnerNames = sortedRanks.slice(0, 3).map(r => r.username).join(', ');
+              alert(`🎉 [WEEKLY RESET SIMULATION SUCCESSFUL]\n🏆 Ranks successfully rotated!\n🥇 Season rewards and premium badges have been dispatched to: ${winnerNames || 'Lyra, Elena and Kaelen'}\n🔥 Active streak modifiers credited +150 XP bonus!`);
+            }}
+            id="simulate-reset-btn"
+            className="w-full py-2 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 font-mono text-[9px] uppercase font-bold text-indigo-400 rounded-lg hover:text-white hover:border-indigo-400 transition-all cursor-pointer"
+          >
+            ⚙️ Dry-Run Weekly Reset Simulator
+          </button>
+        </div>
+
         {/* REWARDS DESCRIPTION */}
         <div className="p-5 rounded-xl border border-white/10 bg-white/5 space-y-3">
           <div className="flex items-center gap-2 text-indigo-400">

@@ -36,6 +36,7 @@ import {
 } from '../types';
 import { BADGE_LIBRARY, COMPANIONS_AVATARS, SAMPLE_COURSES } from '../data/rpgAssets';
 import { containsBadWord } from './usernameValidator';
+import { antiSpam } from './antiSpam';
 
 // Helper to protect Firebase async actions from network hanging indefinitely
 function withTimeout<T>(promise: Promise<T>, timeoutMs = 10000): Promise<T> {
@@ -651,6 +652,32 @@ async function syncLeaderboardFields(userId: string, fields: Partial<UserProfile
 }
 
 /**
+ * Validates whether a file is an allowed image format (jpg, jpeg, png, webp)
+ * and satisfies the maximum file size requirement (2MB).
+ * Throws a descriptive ValidationError if validation fails.
+ */
+export function validateImage(file: File): void {
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  const mime = file.type.toLowerCase();
+
+  const isJpg = mime === 'image/jpeg' || ext === 'jpg' || ext === 'jpeg';
+  const isPng = mime === 'image/png' || ext === 'png';
+  const isWebp = mime === 'image/webp' || ext === 'webp';
+  const isImageGroup = mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tiff'].includes(ext);
+
+  if (isImageGroup) {
+    if (!isJpg && !isPng && !isWebp) {
+      throw new Error('Unsupported image format. Allowed formats: JPG, JPEG, PNG, or WEBP only.');
+    }
+    
+    const maxImageSize = 2 * 1024 * 1024; // 2 MB
+    if (file.size > maxImageSize) {
+      throw new Error('The selected image is too large. Maximum size for image uploads is 2 MB.');
+    }
+  }
+}
+
+/**
  * Cloudinary Universal Upload Helper
  * Conforms to:
  * - Cloud name: duhjznmfp
@@ -670,15 +697,11 @@ export async function uploadFile(file: File): Promise<string> {
   const isMov = mime === 'video/quicktime' || mime === 'video/x-quicktime' || mime === 'video/mov' || ext === 'mov';
   const isVideoValidated = isMp4 || isMov;
 
-  if (!isImageValidated && !isVideoValidated) {
+  // Let's run robust validation first
+  if (isImageValidated || mime.startsWith('image/')) {
+    validateImage(file);
+  } else if (!isVideoValidated) {
     throw new Error('Unsupported file format. Images must be: jpg, jpeg, png, webp. Videos must be: mp4, mov.');
-  }
-
-  if (isImageValidated) {
-    const maxImageSize = 10 * 1024 * 1024; // 10 MB
-    if (file.size > maxImageSize) {
-      throw new Error('The selected image is too large. Maximum size for image uploads is 10 MB.');
-    }
   }
 
   if (isVideoValidated) {
@@ -742,8 +765,15 @@ export const stateService = {
     if (!userId) {
       throw new Error('Only authenticated users can upload media.');
     }
+    // Check if user is spamming uploads or trying to upload duplicates
+    antiSpam.checkUpload(userId, file);
+
     // Perform Cloudinary Upload bypassing Firebase Storage completely!
-    return uploadFile(file);
+    const downloadUrl = await uploadFile(file);
+
+    // Register successful upload log
+    antiSpam.registerUpload(userId, file);
+    return downloadUrl;
   },
 
   // -----------------------------------------
@@ -919,7 +949,18 @@ export const stateService = {
     }
   },
 
-  async addTask(userId: string, title: string, category: TaskCategory, difficulty: TaskDifficulty, recurring: 'none' | 'daily' | 'weekly' = 'none', dueDate?: string): Promise<void> {
+  async addTask(
+    userId: string, 
+    title: string, 
+    category: TaskCategory, 
+    difficulty: TaskDifficulty, 
+    recurring: 'none' | 'daily' | 'weekly' = 'none', 
+    dueDate?: string, 
+    description?: string, 
+    skillTreeId?: string, 
+    skillNodeId?: string, 
+    xpReward?: number
+  ): Promise<void> {
     const taskId = 'task_' + Math.random().toString(36).substring(2, 11);
     const newTask: RPGTask = {
       id: taskId,
@@ -932,6 +973,10 @@ export const stateService = {
       recurring,
       dueDate: dueDate || null,
       createdAt: new Date().toISOString(),
+      ...(description ? { description: description.trim() } : {}),
+      ...(skillTreeId ? { skillTreeId } : {}),
+      ...(skillNodeId ? { skillNodeId } : {}),
+      ...(xpReward !== undefined ? { xpReward } : {}),
     };
 
     if (isFirebaseEnabled) {
@@ -967,7 +1012,7 @@ export const stateService = {
 
     // 2. Complete task
     const completedAt = new Date().toISOString();
-    const xpPayout = getXpReward(task.difficulty);
+    const xpPayout = task.xpReward || getXpReward(task.difficulty);
 
     if (isFirebaseEnabled) {
       try {
@@ -980,6 +1025,8 @@ export const stateService = {
           }
           const freshTask = taskDoc.data() as RPGTask;
           if (freshTask.completed) return null; // already completed
+
+          const finalXpPayout = freshTask.xpReward || getXpReward(freshTask.difficulty);
 
           // Fetch User BEFORE doing any writes
           const userRef = doc(db, 'users', userId);
@@ -1000,7 +1047,7 @@ export const stateService = {
             // b. Add XP with isTaskCompletion = true
             const { updatedUser: finalUser, actions: xpActions } = addXpToUserProfile(
               streakUpdatedUser, 
-              xpPayout, 
+              finalXpPayout, 
               freshTask.category, 
               true
             );
@@ -1055,6 +1102,137 @@ export const stateService = {
 
         // Notify local subscribers
         for (const act of allActions) {
+          this.createLocalNotificationFromAction(userId, act);
+        }
+      }
+    }
+  },
+
+  async completeDailyChallenge(userId: string, category: TaskCategory, xpPayout: number, challengeTitle: string): Promise<void> {
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    if (isFirebaseEnabled) {
+      try {
+        await runTransaction(db, async (transaction) => {
+          const userRef = doc(db, 'users', userId);
+          const userDoc = await transaction.get(userRef);
+          if (!userDoc.exists()) {
+            throw new Error('User does not exist');
+          }
+
+          const uProfile = userDoc.data() as UserProfile;
+          
+          if (uProfile.lastChallengeCompletedDate === todayStr) {
+            throw new Error('Daily challenge already completed today');
+          }
+
+          // a. Update daily streak
+          const { updatedUser: streakUpdatedUser, actions: streakActions } = updateUserStreak(uProfile);
+          
+          // b. Add XP with isTaskCompletion = true
+          const { updatedUser: finalUser, actions: xpActions } = addXpToUserProfile(
+            streakUpdatedUser, 
+            xpPayout, 
+            category, 
+            true
+          );
+          
+          finalUser.lastChallengeCompletedDate = todayStr;
+
+          const allActions = [...streakActions, ...xpActions];
+
+          transaction.set(userRef, finalUser);
+          return { finalUser, allActions };
+        }).then(async (result) => {
+          if (result) {
+            const { finalUser, allActions } = result;
+            await syncToLeaderboard(userId, finalUser);
+            // Trigger notifications
+            for (const act of allActions) {
+              await this.createNotificationFromAction(userId, act);
+            }
+            // Broadcast to community feed
+            const broadcastMessage = `Achieved Daily Champion Status! Completed today's challenge: "${challengeTitle}" 🔥 (+${xpPayout} XP, Streak: ${finalUser.streak} days)`;
+            await this.createSocialPost(userId, finalUser.username, finalUser.avatar, broadcastMessage, null);
+          }
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${userId}`);
+      }
+    } else {
+      // Offline local mutation
+      const users = JSON.parse(localStorage.getItem('anavare_users') || '{}');
+      if (users[userId]) {
+        const uProfile = users[userId] as UserProfile;
+        if (uProfile.lastChallengeCompletedDate === todayStr) {
+          return; // already completed
+        }
+
+        // 1. Update daily streak
+        const { updatedUser: streakUpdatedUser, actions: streakActions } = updateUserStreak(uProfile);
+        
+        // 2. Add XP with isTaskCompletion = true
+        const { updatedUser: finalUpdatedUser, actions: xpActions } = addXpToUserProfile(
+          streakUpdatedUser, 
+          xpPayout, 
+          category, 
+          true
+        );
+        
+        finalUpdatedUser.lastChallengeCompletedDate = todayStr;
+        
+        const allActions = [...streakActions, ...xpActions];
+        
+        users[userId] = finalUpdatedUser;
+        localStorage.setItem('anavare_users', JSON.stringify(users));
+        localRPG.writeUser(finalUpdatedUser);
+
+        // Notify local subscribers
+        for (const act of allActions) {
+          this.createLocalNotificationFromAction(userId, act);
+        }
+
+        // Broadcast to community feed
+        const broadcastMessage = `Achieved Daily Champion Status! Completed today's challenge: "${challengeTitle}" 🔥 (+${xpPayout} XP, Streak: ${finalUpdatedUser.streak} days)`;
+        await this.createSocialPost(userId, finalUpdatedUser.username, finalUpdatedUser.avatar, broadcastMessage, null);
+      }
+    }
+  },
+
+  async claimQuestXp(userId: string, xpAmount: number): Promise<void> {
+    if (isFirebaseEnabled) {
+      try {
+        await runTransaction(db, async (transaction) => {
+          const userRef = doc(db, 'users', userId);
+          const userDoc = await transaction.get(userRef);
+          if (!userDoc.exists()) throw new Error('User not found');
+          
+          const uProfile = userDoc.data() as UserProfile;
+          const { updatedUser: finalUser, actions } = addXpToUserProfile(uProfile, xpAmount, 'learning', true);
+          
+          transaction.set(userRef, finalUser);
+          return { finalUser, actions };
+        }).then(async (result) => {
+          if (result) {
+            const { finalUser, actions } = result;
+            await syncToLeaderboard(userId, finalUser);
+            for (const act of actions) {
+              await this.createNotificationFromAction(userId, act);
+            }
+          }
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${userId}`);
+      }
+    } else {
+      const users = JSON.parse(localStorage.getItem('anavare_users') || '{}');
+      if (users[userId]) {
+        const uProfile = users[userId] as UserProfile;
+        const { updatedUser: finalUser, actions } = addXpToUserProfile(uProfile, xpAmount, 'learning', true);
+        users[userId] = finalUser;
+        localStorage.setItem('anavare_users', JSON.stringify(users));
+        localRPG.writeUser(finalUser);
+        for (const act of actions) {
           this.createLocalNotificationFromAction(userId, act);
         }
       }
@@ -1265,6 +1443,9 @@ export const stateService = {
   },
 
   async createSocialPost(userId: string, authorName: string, authorAvatar: string, content: string, imageUrl?: string | null): Promise<void> {
+    // 1. Run Action Cooldown anti-spam verification
+    antiSpam.checkAction(userId);
+
     const trimmedContent = content.trim();
     if (!trimmedContent) {
       throw new Error('Validation Error: Content cannot be empty.');
@@ -1304,8 +1485,11 @@ export const stateService = {
 
     if (isFirebaseEnabled) {
       try {
+        console.log('[Firestore Debug] WRITING social post. Payload:', JSON.stringify(newPost, null, 2));
         await setDoc(doc(db, 'posts', postId), newPost);
+        console.log('[Firestore Debug] SUCCESS social post created.');
       } catch (err) {
+        console.error('[Firestore Debug] FAILED social post creation:', err);
         handleFirestoreError(err, OperationType.CREATE, `posts/${postId}`);
       }
     } else {
@@ -1323,6 +1507,9 @@ export const stateService = {
         }
       }
     }
+
+    // 2. Register successful action for rate limiting
+    antiSpam.registerAction(userId);
   },
 
   async updateSocialPost(postId: string, userId: string, fields: { content?: string, imageUrl?: string | null }): Promise<void> {
@@ -1377,12 +1564,18 @@ export const stateService = {
             ? post.likes.filter(id => id !== userId)
             : [...post.likes, userId];
           
-          await updateDoc(postRef, {
+          const payload = {
             likes: newLikes,
             likesCount: newLikes.length
-          });
+          };
+          console.log('[Firestore Debug] UPDATING post likes. Post:', postId, 'Payload:', JSON.stringify(payload, null, 2));
+          await updateDoc(postRef, payload);
+          console.log('[Firestore Debug] SUCCESS post likes updated.');
+        } else {
+          console.warn('[Firestore Debug] Liking failed: post document does not exist:', postId);
         }
       } catch (err) {
+        console.error('[Firestore Debug] FAILED post likes update:', err);
         handleFirestoreError(err, OperationType.UPDATE, `posts/${postId}`);
       }
     } else {
@@ -1437,6 +1630,9 @@ export const stateService = {
     content: string, 
     parentCommentId: string | null = null
   ): Promise<void> {
+    // 1. Run Action Cooldown anti-spam verification
+    antiSpam.checkAction(userId);
+
     if (containsBadWord(content)) {
       throw new Error('This content is not allowed.');
     }
@@ -1454,13 +1650,19 @@ export const stateService = {
 
     if (isFirebaseEnabled) {
       try {
+        console.log('[Firestore Debug] WRITING comment subcollection document. Path:', `posts/${postId}/comments/${commentId}`, 'Payload:', JSON.stringify(newComment, null, 2));
         // Create in subcollection
         await setDoc(doc(db, 'posts', postId, 'comments', commentId), newComment);
+        console.log('[Firestore Debug] SUCCESS written comment document.');
+
+        console.log('[Firestore Debug] UPDATING master post commentsCount. Post:', postId);
         // Increment comment count on master post
         await updateDoc(doc(db, 'posts', postId), {
           commentsCount: increment(1)
         });
+        console.log('[Firestore Debug] SUCCESS master post commentsCount updated.');
       } catch (err) {
+        console.error('[Firestore Debug] FAILED comment creation or comment-count increment:', err);
         handleFirestoreError(err, OperationType.CREATE, `posts/${postId}/comments/${commentId}`);
       }
     } else {
@@ -1483,6 +1685,9 @@ export const stateService = {
         }
       }
     }
+
+    // 2. Register successful action for rate limiting
+    antiSpam.registerAction(userId);
   },
 
   // -----------------------------------------
@@ -1596,6 +1801,9 @@ export const stateService = {
     image: string, 
     lessons: Lesson[]
   ): Promise<Course> {
+    // Check Action Cooldown rate limiting
+    antiSpam.checkAction(userId);
+
     // Permission Verification: Check level 60+ (Veteran rank)
     let userProfile: UserProfile | null = null;
     if (isFirebaseEnabled) {
@@ -1662,6 +1870,9 @@ export const stateService = {
       localRPG.notify('courses:custom');
     }
 
+    // Register successful action for rate limiting
+    antiSpam.registerAction(userId);
+
     return newCourse;
   },
 
@@ -1691,8 +1902,11 @@ export const stateService = {
   async markNotificationRead(notificationId: string): Promise<void> {
     if (isFirebaseEnabled) {
       try {
+        console.log('[Firestore Debug] UPDATING notification read status. Doc ID:', notificationId);
         await updateDoc(doc(db, 'notifications', notificationId), { read: true });
+        console.log('[Firestore Debug] SUCCESS notification marked as read.');
       } catch (err) {
+        console.error('[Firestore Debug] FAILED notification update:', err);
         handleFirestoreError(err, OperationType.UPDATE, `notifications/${notificationId}`);
       }
     } else {
@@ -1769,7 +1983,14 @@ export const stateService = {
         read: false,
         createdAt: new Date().toISOString()
       };
-      await setDoc(doc(db, 'notifications', notifId), notif);
+      console.log('[Firestore Debug] WRITING notification document. Path:', `notifications/${notifId}`, 'Payload:', JSON.stringify(notif, null, 2));
+      try {
+        await setDoc(doc(db, 'notifications', notifId), notif);
+        console.log('[Firestore Debug] SUCCESS written notification.');
+      } catch (err) {
+        console.error('[Firestore Debug] FAILED notification write:', err);
+        throw err;
+      }
     }
   },
 

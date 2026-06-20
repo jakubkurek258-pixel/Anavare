@@ -13,6 +13,7 @@ import { auth, isFirebaseEnabled } from '../lib/firebase';
 import { UserProfile } from '../types';
 import { stateService } from '../lib/stateService';
 import { validateUsername } from '../lib/usernameValidator';
+import { antiSpam } from '../lib/antiSpam';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -76,6 +77,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [localAuthId]);
+
+  // Reset anti-spam cache whenever user logs out, logins or changes
+  useEffect(() => {
+    if (activeUid) {
+      antiSpam.resetForUser(activeUid);
+    } else {
+      antiSpam.resetAll();
+    }
+  }, [activeUid]);
 
   // Synchronize user profile subscriptions
   useEffect(() => {
@@ -286,10 +296,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const existingProfile = await stateService.getStaticUserProfile(user.uid);
         if (!existingProfile) {
           console.log("[AuthContext INFO] No existing Firestore profile found for Google user. Provisioning new profile now...");
-          const usernameOfEmail = user.displayName || user.email?.split('@')[0] || 'Warrior';
+          const rawUsername = user.displayName || user.email?.split('@')[0] || 'Warrior';
+          // Clean username to strictly match /^[a-zA-Z0-9_]+$/
+          const cleanedUsername = rawUsername.replace(/[^a-zA-Z0-9_]/g, '') || 'Warrior';
+          let finalUsername = cleanedUsername.substring(0, 20);
+          if (finalUsername.length < 3) {
+            finalUsername = (finalUsername + '___').substring(0, 3);
+          }
           await stateService.createUserProfile({
             id: user.uid,
-            username: usernameOfEmail.trim(),
+            username: finalUsername,
             email: user.email || '',
             avatar: user.photoURL || 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?w=150&q=80',
           });

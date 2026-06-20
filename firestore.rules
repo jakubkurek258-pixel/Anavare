@@ -7,17 +7,13 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Helper functions
+    // --- GLOBAL SECURITY HELPERS ---
     function isSignedIn() {
       return request.auth != null;
     }
 
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function incoming() {
@@ -28,63 +24,176 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isValidText(text) {
-      return text is string 
-        && !text.lower().matches('.*(fuck|shit|bitch|cunt|kurwa|chuj|jebac|pizda|nigger).*')
-        && !text.lower().matches('.*(f u c k|s h i t|k u r w a|n i g g e r|n1gg4|f\\*ck|sh\\*t).*');
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    function isValidUsername(username) {
-      return username is string 
-        && username.size() >= 3 
-        && username.size() <= 20 
-        && username.matches('^[a-zA-Z0-9_]+$')
-        && !username.lower().matches('.*(admin|moderator|support).*')
-        && isValidText(username);
+    // --- STRUCTURAL VALIDATION HELPERS ---
+
+    function isValidUser(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.username is string && data.username.size() <= 100
+        && data.email is string && data.email.size() <= 150
+        && data.avatar is string && data.avatar.size() <= 500
+        && data.level is int && data.level >= 1
+        && data.xp is int && data.xp >= 0
+        && data.requiredXp is int && data.requiredXp >= 10
+        && data.totalXp is int && data.totalXp >= 0
+        && data.streak is int && data.streak >= 0
+        && data.skills is map
+        && data.badges is list
+        && data.createdAt is string;
     }
+
+    function isValidTask(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.title is string && data.title.size() <= 200
+        && data.category is string && data.category in ['health', 'fitness', 'learning', 'productivity', 'finance', 'mindset']
+        && data.difficulty is string && data.difficulty in ['easy', 'medium', 'hard', 'epic']
+        && data.completed is bool
+        && (data.get('completedAt', null) == null || data.completedAt is string)
+        && (data.get('dueDate', null) == null || data.dueDate is string)
+        && data.recurring is string && data.recurring in ['none', 'daily', 'weekly']
+        && data.createdAt is string;
+    }
+
+    function isValidPost(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.authorName is string && data.authorName.size() <= 100
+        && data.authorAvatar is string && data.authorAvatar.size() <= 500
+        && data.content is string && data.content.size() <= 2000
+        && (data.get('imageUrl', null) == null || data.imageUrl is string)
+        && data.likes is list
+        && data.likesCount is int && data.likesCount >= 0
+        && data.commentsCount is int && data.commentsCount >= 0
+        && data.createdAt is string;
+    }
+
+    function isValidComment(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.postId is string && data.postId.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.authorName is string && data.authorName.size() <= 100
+        && data.authorAvatar is string && data.authorAvatar.size() <= 500
+        && data.content is string && data.content.size() <= 1000
+        && (data.get('parentCommentId', null) == null || data.parentCommentId is string)
+        && data.createdAt is string;
+    }
+
+    function isValidUserLesson(data) {
+      return data.id is string && data.id.size() <= 200
+        && data.userId is string && data.userId.size() <= 128
+        && data.courseId is string && data.courseId.size() <= 128
+        && data.lessonId is string && data.lessonId.size() <= 128
+        && data.completed is bool
+        && data.completedAt is string
+        && (data.get('proofUrl', null) == null || data.proofUrl is string)
+        && (data.get('proofType', null) == null || data.proofType is string);
+    }
+
+    function isValidNotification(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.title is string && data.title.size() <= 200
+        && data.message is string && data.message.size() <= 1000
+        && data.type is string && data.type in ['system', 'level_up', 'streak', 'badge', 'social']
+        && data.read is bool
+        && data.createdAt is string;
+    }
+
+    function isValidCourse(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 200
+        && data.description is string && data.description.size() <= 2000
+        && data.category is string && data.category in ['health', 'fitness', 'learning', 'productivity', 'finance', 'mindset']
+        && data.xpReward is int && data.xpReward >= 0
+        && data.image is string && data.image.size() <= 500
+        && (data.get('coverImageUrl', null) == null || data.coverImageUrl is string)
+        && data.lessons is list
+        && data.creatorId is string && data.creatorId.size() <= 128;
+    }
+
+    function isValidLeaderboardEntry(data) {
+      return data.userId is string && data.userId.size() <= 128
+        && data.username is string && data.username.size() <= 100
+        && data.xp is int && data.xp >= 0
+        && data.level is int && data.level >= 1
+        && data.avatar is string && data.avatar.size() <= 500
+        && data.streak is int && data.streak >= 0
+        && data.badgesCount is int && data.badgesCount >= 0;
+    }
+
+    // --- COLLECTION RULE MATCHES ---
 
     // 1. Users collection
-    // User profiles are clickable and public for social leaderboards and posts
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow create: if isOwner(userId) 
-        && incoming().id == userId
-        && incoming().level == 1
-        && incoming().xp == 0
-        && isValidUsername(incoming().username);
-      allow update: if isOwner(userId)
-        && incoming().id == userId
-        && (!incoming().keys().hasAny(['username']) || isValidUsername(incoming().username));
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && (
+        // Prevent modifying system critical auth identifiers on update
+        incoming().id == existing().id &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt
+      );
       allow delete: if isOwner(userId);
     }
 
     // 2. Tasks collection
-    // Private tasks of each user
     match /tasks/{taskId} {
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() 
-        && incoming().userId == request.auth.uid
-        && incoming().id == taskId;
-      allow update: if isSignedIn() 
+      allow create: if isSignedIn() && isValidId(taskId) && incoming().userId == request.auth.uid && isValidTask(incoming());
+      allow update: if isSignedIn() && isValidId(taskId)
         && existing().userId == request.auth.uid
-        && incoming().userId == request.auth.uid;
-      allow delete: if isSignedIn() 
-        && existing().userId == request.auth.uid;
+        && incoming().userId == request.auth.uid
+        && isValidTask(incoming())
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
     // 3. Community Posts
-    // Anyone signed in can read. Any authenticated user can create. Action updates allow liking.
     match /posts/{postId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn()
-        && incoming().userId == request.auth.uid
-        && incoming().id == postId
-        && isValidText(incoming().content);
-      allow update: if isSignedIn() && (
-        // Action 1: Creator edit post
-        (existing().userId == request.auth.uid && incoming().userId == request.auth.uid && isValidText(incoming().content)) ||
-        // Action 2: Anyone likes or increments comment count
-        (incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'likesCount', 'commentsCount']))
+      allow create: if isSignedIn() && isValidId(postId) && incoming().userId == request.auth.uid && isValidPost(incoming());
+      
+      // Updates are split into three actions: Edit Content, Like Post, Comment on Post
+      allow update: if isSignedIn() && isValidId(postId) && (
+        // Action A: Edit owned post content or image
+        (
+          existing().userId == request.auth.uid &&
+          incoming().userId == request.auth.uid &&
+          isValidPost(incoming()) &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['content', 'imageUrl'])
+        ) ||
+        // Action B: Any user can toggle like (adds/removes uid from likes list, and modifies likesCount key)
+        (
+          isValidPost(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().userId == existing().userId &&
+          incoming().authorName == existing().authorName &&
+          incoming().authorAvatar == existing().authorAvatar &&
+          incoming().content == existing().content &&
+          incoming().get('imageUrl', null) == existing().get('imageUrl', null) &&
+          incoming().commentsCount == existing().commentsCount &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'likesCount'])
+        ) ||
+        // Action C: Any user can comment (increments commentsCount on comment creation)
+        (
+          isValidPost(incoming()) &&
+          incoming().id == existing().id &&
+          incoming().userId == existing().userId &&
+          incoming().authorName == existing().authorName &&
+          incoming().authorAvatar == existing().authorAvatar &&
+          incoming().content == existing().content &&
+          incoming().get('imageUrl', null) == existing().get('imageUrl', null) &&
+          incoming().likes == existing().likes &&
+          incoming().likesCount == existing().likesCount &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount'])
+        )
       );
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
@@ -92,58 +201,41 @@ service cloud.firestore {
     // 4. Post Comments Subcollection
     match /posts/{postId}/comments/{commentId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn()
-        && incoming().userId == request.auth.uid
-        && incoming().id == commentId
-        && isValidText(incoming().content);
-      allow update: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(commentId) && incoming().userId == request.auth.uid && isValidComment(incoming());
+      allow update: if isSignedIn() && isValidId(commentId) && existing().userId == request.auth.uid && incoming().userId == request.auth.uid && isValidComment(incoming());
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
     // 5. User Lessons Complete Trackers
     match /userLessons/{lessonDocId} {
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() 
-        && incoming().userId == request.auth.uid;
-      allow update: if isSignedIn() 
-        && existing().userId == request.auth.uid
-        && incoming().userId == request.auth.uid;
-      allow delete: if isSignedIn() 
-        && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidUserLesson(incoming());
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().userId == request.auth.uid && isValidUserLesson(incoming());
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
     // 6. Notifications for users
     match /notifications/{notificationId} {
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() 
-        && incoming().userId == request.auth.uid;
-      allow update: if isSignedIn() 
-        && existing().userId == request.auth.uid
-        && incoming().userId == request.auth.uid;
-      allow delete: if isSignedIn() 
-        && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidNotification(incoming());
+      // Users can modify the 'read' attribute of their own notifications
+      allow update: if isSignedIn() && existing().userId == request.auth.uid && incoming().userId == request.auth.uid && isValidNotification(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
     // 7. Custom Courses
     match /courses/{courseId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn()
-        && incoming().creatorId == request.auth.uid
-        && incoming().id == courseId
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.level >= 10;
+      allow create: if isSignedIn() && isValidId(courseId) && incoming().creatorId == request.auth.uid && isValidCourse(incoming());
+      allow update: if isSignedIn() && existing().creatorId == request.auth.uid && incoming().creatorId == request.auth.uid && isValidCourse(incoming());
       allow delete: if isSignedIn() && existing().creatorId == request.auth.uid;
     }
 
     // 8. Leaderboard collection
     match /leaderboard/{userId} {
       allow read: if isSignedIn();
-      allow write: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidLeaderboardEntry(incoming());
       allow delete: if isOwner(userId);
-    }
-
-    // 9. Deletion reasons log (optional but saved in Firestore or logs)
-    match /deletion_reasons/{reasonId} {
-      allow create: if isSignedIn();
     }
   }
 }

@@ -2,6 +2,7 @@ import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getAnalytics, logEvent, isSupported } from 'firebase/analytics';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
 // Support both environment variables (required for Vercel) and the JSON fallback file
@@ -48,7 +49,8 @@ export const isMockConfig =
   firebaseConfig.apiKey.includes('mock-api-key') ||
   firebaseConfig.projectId === 'mock-project';
 
-let app;
+export let app: any = null;
+export let analytics: any = null;
 let dbInstance: any = null;
 let authInstance: any = null;
 let storageInstance: any = null;
@@ -71,6 +73,22 @@ if (!isMockConfig) {
     authInstance = getAuth(app);
     storageInstance = getStorage(app);
     console.log("Firebase initialized successfully with real credentials and forced long-polling.");
+
+    // Safe browser-only Firebase Analytics initialization
+    if (typeof window !== 'undefined') {
+      isSupported().then((supported) => {
+        if (supported && app) {
+          analytics = getAnalytics(app);
+          console.log("Firebase Analytics initialized successfully.");
+          // Trigger the required test event for verification with Firebase DebugView
+          trackEvent('test_event', { timing: 'on_init' });
+        } else {
+          console.warn("Firebase Analytics is not supported in this environment/browser.");
+        }
+      }).catch((err) => {
+        console.warn("Could not check if Firebase Analytics is supported:", err);
+      });
+    }
   } catch (error) {
     console.warn("Failed to initialize Firebase SDK, falling back to local mode:", error);
   }
@@ -82,6 +100,20 @@ export const db = dbInstance;
 export const auth = authInstance;
 export const storage = storageInstance;
 export const isFirebaseEnabled = !isMockConfig && dbInstance !== null && authInstance !== null && storageInstance !== null;
+
+// Reusable helper function for tracking analytics events
+export function trackEvent(eventName: string, params?: object) {
+  if (analytics) {
+    try {
+      logEvent(analytics, eventName, params);
+      console.log(`[Firebase Analytics] Event tracked: "${eventName}"`, params);
+    } catch (error) {
+      console.error(`[Firebase Analytics] Error tracking event "${eventName}":`, error);
+    }
+  } else {
+    console.warn(`[Firebase Analytics] Analytics not active. Ignored event "${eventName}".`);
+  }
+}
 
 // Mandatory Error Handling wrapper conforming strictly to the platform specs
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {

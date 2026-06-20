@@ -57,11 +57,22 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
         await loginWithEmail(email.trim(), password);
       }
     } catch (err: any) {
-      const msg = err.message || '';
-      if (msg.includes('auth/operation-not-allowed') || msg.includes('operation-not-allowed')) {
-        setErrorText('⚠️ Email/Password login is not enabled in your Firebase Console! To enable: Go to Firebase Console -> Authentication -> Sign-in method -> Add new provider -> select "Email/Password", toggle "Enable", and click "Save". Once enabled, registration will work instantly!');
+      if (isSignUp) {
+        const msg = err.message || '';
+        if (msg.includes('auth/operation-not-allowed') || msg.includes('operation-not-allowed')) {
+          setErrorText('⚠️ Email/Password login is not enabled in your Firebase Console! To enable: Go to Firebase Console -> Authentication -> Sign-in method -> Add new provider -> select "Email/Password", toggle "Enable", and click "Save". Once enabled, registration will work instantly!');
+        } else {
+          setErrorText(msg || 'Verification failure under authorized channels.');
+        }
       } else {
-        setErrorText(msg || 'Verification failure under authorized channels.');
+        const msg = err.message || '';
+        if (msg.includes('auth/operation-not-allowed') || msg.includes('operation-not-allowed')) {
+          setErrorText('⚠️ Email/Password login is not enabled in your Firebase Console! To enable: Go to Firebase Console -> Authentication -> Sign-in method -> Add new provider -> select "Email/Password", toggle "Enable", and click "Save". Once enabled, registration will work instantly!');
+        } else {
+          // If login fails (wrong email, password, user not found, or any invalid format/creds),
+          // show a safe, clear, generic error message and keep the user on the login screen.
+          setErrorText('Incorrect email or password');
+        }
       }
     } finally {
       setSubmitting(false);

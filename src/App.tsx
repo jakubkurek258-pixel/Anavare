@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { trackEvent } from './lib/firebase';
 import LoginView from './components/LoginView';
 import LandingView from './components/LandingView';
 import DashboardView from './components/DashboardView';
@@ -11,6 +12,7 @@ import NotificationCenter from './components/NotificationCenter';
 import AvatarPicker from './components/AvatarPicker';
 import ProfileView from './components/ProfileView';
 import AvatarImage from './components/AvatarImage';
+import RewardShowcase from './components/RewardShowcase';
 import { 
   Gamepad2, Compass, GraduationCap, Users, Trophy, 
   LogOut, ShieldAlert, Swords, CircleCheck, Info, User
@@ -277,6 +279,9 @@ function MasterGameConsole() {
         </div>
       </footer>
 
+      {/* REWARD CELEBRATION MODALS (STREAK INCREASES OR LEVEL UPS) */}
+      <RewardShowcase />
+
     </div>
   );
 }
@@ -311,6 +316,11 @@ function AppContent() {
   const { user, loading } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+
+  useEffect(() => {
+    // Trigger test event on mounting of the application to verify analytics connection and DebugView
+    trackEvent('test_event', { source: 'AppContent_mount' });
+  }, []);
   
   if (loading) {
     return <LoadingConsoleScreen />;

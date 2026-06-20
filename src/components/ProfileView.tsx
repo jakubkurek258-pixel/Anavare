@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { COMPANIONS_AVATARS } from '../data/rpgAssets';
-import { stateService } from '../lib/stateService';
+import { stateService, validateImage } from '../lib/stateService';
 import AvatarImage from './AvatarImage';
 import { 
   User, Shield, Award, Calendar, Flame, Zap, Camera, RefreshCw, 
@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 export default function ProfileView() {
   const { user, setProfileAvatar, logout } = useAuth();
   const [isUploading, setIsUploading] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -41,40 +42,35 @@ export default function ProfileView() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsUploading(true);
     setUploadError('');
     setSuccessMsg('');
 
     try {
-      // 1. Validate file format
-      const ext = file.name.split('.').pop()?.toLowerCase() || '';
-      const mime = file.type.toLowerCase();
+      // 1. Validate file format and size (Max 2MB)
+      validateImage(file);
 
-      const isJpg = mime === 'image/jpeg' || ext === 'jpg' || ext === 'jpeg';
-      const isPng = mime === 'image/png' || ext === 'png';
-      const isWebp = mime === 'image/webp' || ext === 'webp';
-      const isImageValidated = isJpg || isPng || isWebp;
+      // Create local preview immediately
+      const objectUrl = URL.createObjectURL(file);
+      setAvatarPreview(objectUrl);
+      setIsUploading(true);
 
-      if (!isImageValidated) {
-        throw new Error('Unsupported file format. Only JPG, JPEG, PNG or WEBP images are allowed.');
-      }
-
-      // 2. Validate file size (Max 10MB for photos)
-      const maxImageSize = 10 * 1024 * 1024; // 10 MB
-      if (file.size > maxImageSize) {
-        throw new Error('The selected file is too large. Maximum size for profile pictures is 10 MB.');
-      }
-
-      // 3. Upload to Cloudinary using secure upload endpoint
+      // 2. Upload to Cloudinary using secure upload endpoint
       const secureUrl = await stateService.uploadMedia(file, 'users', user.id);
       
-      // 4. Update model state and persistence
+      // 3. Update model state and persistence
       await setProfileAvatar(secureUrl);
       setSuccessMsg('Profile picture updated successfully!');
+      
+      // Revoke the object URL to prevent memory leaks
+      URL.revokeObjectURL(objectUrl);
+      setAvatarPreview(null);
     } catch (err: any) {
       setUploadError(err?.message || 'Failed to request image upload.');
+      setAvatarPreview(null);
     } finally {
       setIsUploading(false);
+      // Clean and safe handling of file input: reset value so same file can be selected again
+      e.target.value = '';
     }
   };
 
@@ -142,10 +138,16 @@ export default function ProfileView() {
             {/* Display user profile photo center aligned, modern appearance */}
             <div className="relative w-44 h-44 rounded-2xl overflow-hidden border border-indigo-500/30 shadow-[0_0_25px_rgba(99,102,241,0.15)] group bg-black/50 mb-4 shrink-0 flex items-center justify-center">
               <AvatarImage 
-                src={user.avatar} 
-                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
+                src={avatarPreview || user.avatar} 
+                className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${isUploading ? 'opacity-40 blur-[1px]' : ''}`} 
                 alt={user.username}
               />
+              {isUploading && (
+                <div className="absolute inset-x-0 bottom-0 bg-black/60 py-2 flex flex-col items-center justify-center gap-1">
+                  <RefreshCw className="w-5 h-5 animate-spin text-indigo-400" />
+                  <span className="text-[8px] text-indigo-200 font-mono uppercase tracking-widest font-semibold animate-pulse">Uploading...</span>
+                </div>
+              )}
             </div>
 
             <h3 className="font-display font-black text-xl text-white tracking-wide uppercase">
@@ -188,7 +190,7 @@ export default function ProfileView() {
                 />
               </label>
               <span className="block text-[9px] text-slate-500 font-mono mt-2 uppercase">
-                Supported formats: JPG, PNG, WEBP • Max: 10 MB
+                Supported formats: JPG, PNG, WEBP • Max: 2 MB
               </span>
             </div>
           </div>

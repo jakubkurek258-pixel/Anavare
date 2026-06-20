@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { stateService } from '../lib/stateService';
+import { stateService, validateImage } from '../lib/stateService';
 import { RPGPost, RPGComment, UserProfile } from '../types';
 import { getUserRank } from '../lib/rankSystem';
 import AvatarImage from './AvatarImage';
 import { SocialFeedImage } from './SocialFeedImage';
 import { 
   Heart, MessageCircle, Send, Plus, Image, User, Users,
-  CornerDownRight, Flame, ShieldAlert, Badge, HelpCircle, X, Trash2
+  CornerDownRight, Flame, ShieldAlert, Badge, HelpCircle, X, Trash2,
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -25,6 +26,8 @@ export default function SocialFeedView() {
   const [postContent, setPostContent] = useState('');
   const [postImageUrl, setPostImageUrl] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [createPostPreviewUrl, setCreatePostPreviewUrl] = useState<string | null>(null);
+  const [editPostPreviewUrl, setEditPostPreviewUrl] = useState<string | null>(null);
   
   // File upload state for post creation
   const [isUploading, setIsUploading] = useState(false);
@@ -104,18 +107,33 @@ export default function SocialFeedView() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsUploading(true);
     setUploadError(null);
     try {
-      const url = await stateService.uploadMedia(file, 'posts', user.id);
-      setUploadedImageUrl(url);
+      // Validate image format and file size
+      validateImage(file);
+
+      // Create preview immediately
+      const objectUrl = URL.createObjectURL(file);
+      setCreatePostPreviewUrl(objectUrl);
       setPostImageUrl('');
       setSelectedTemplate('');
+
+      setIsUploading(true);
+
+      const url = await stateService.uploadMedia(file, 'posts', user.id);
+      setUploadedImageUrl(url);
+
+      // Clean preview reference
+      URL.revokeObjectURL(objectUrl);
+      setCreatePostPreviewUrl(null);
     } catch (err: any) {
       console.error(err);
       setUploadError(err?.message || 'Error occurred during image upload process.');
+      setCreatePostPreviewUrl(null);
     } finally {
       setIsUploading(false);
+      // Reset input element value to allow subsequent identical file uploads
+      e.target.value = '';
     }
   };
 
@@ -123,16 +141,31 @@ export default function SocialFeedView() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsEditingUploading(true);
     setEditingUploadError(null);
     try {
+      // Validate image format and file size
+      validateImage(file);
+
+      // Create preview
+      const objectUrl = URL.createObjectURL(file);
+      setEditPostPreviewUrl(objectUrl);
+
+      setIsEditingUploading(true);
+
       const url = await stateService.uploadMedia(file, 'posts', user.id);
       setEditingImageUrl(url);
+
+      // Clean preview reference
+      URL.revokeObjectURL(objectUrl);
+      setEditPostPreviewUrl(null);
     } catch (err: any) {
       console.error(err);
       setEditingUploadError(err?.message || 'Error occurred during image edit upload process.');
+      setEditPostPreviewUrl(null);
     } finally {
       setIsEditingUploading(false);
+      // Clean and safe handling of file input: reset value
+      e.target.value = '';
     }
   };
 
@@ -150,6 +183,10 @@ export default function SocialFeedView() {
         postContent.trim(),
         imgToSave
       );
+      if (createPostPreviewUrl) {
+        try { URL.revokeObjectURL(createPostPreviewUrl); } catch (e) {}
+        setCreatePostPreviewUrl(null);
+      }
       setPostContent('');
       setPostImageUrl('');
       setSelectedTemplate('');
@@ -170,6 +207,10 @@ export default function SocialFeedView() {
         content: editingContent,
         imageUrl: editingImageUrl
       });
+      if (editPostPreviewUrl) {
+        try { URL.revokeObjectURL(editPostPreviewUrl); } catch (e) {}
+        setEditPostPreviewUrl(null);
+      }
       setEditingPostId(null);
     } catch (err: any) {
       console.error(err);
@@ -311,7 +352,7 @@ export default function SocialFeedView() {
                 <span>{isEditingUploading ? 'UPLOADING...' : 'UPLOAD NEW FILE'}</span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/webp"
                   onChange={handleUploadEditingImage}
                   disabled={isEditingUploading}
                   className="hidden"
@@ -319,26 +360,36 @@ export default function SocialFeedView() {
               </label>
             </div>
 
-            {editingImageUrl ? (
+            {(editPostPreviewUrl || editingImageUrl) ? (
               <div className="relative w-full h-32 rounded-lg overflow-hidden border border-indigo-500/2 transition-all mt-1">
                 <img
-                  src={editingImageUrl}
+                  src={editPostPreviewUrl || editingImageUrl || ''}
                   alt="Edit preview progress"
-                  className="w-full h-full object-cover"
+                  className={`w-full h-full object-cover ${isEditingUploading ? 'opacity-40 blur-[1px]' : ''}`}
                   referrerPolicy="no-referrer"
                 />
                 <button
                   type="button"
                   onClick={() => {
+                    if (editPostPreviewUrl) {
+                      try { URL.revokeObjectURL(editPostPreviewUrl); } catch (e) {}
+                      setEditPostPreviewUrl(null);
+                    }
                     setEditingImageUrl(null);
                   }}
                   className="absolute top-1.5 right-1.5 p-1 rounded-full bg-black/80 hover:bg-black text-slate-400 hover:text-white transition-all border border-white/10"
+                  disabled={isEditingUploading}
                 >
                   <X className="w-3 h-3" />
                 </button>
                 <span className="absolute bottom-1.5 left-1.5 text-[8px] font-mono bg-black/80 text-pink-400 px-1.5 py-0.5 rounded border border-white/5 uppercase">
-                  Preview Image Attached
+                  {isEditingUploading ? 'UPLOADING...' : editPostPreviewUrl ? 'Local Preview' : 'Preview Image Attached'}
                 </span>
+                {isEditingUploading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                    <RefreshCw className="w-5 h-5 animate-spin text-pink-400" />
+                  </div>
+                )}
               </div>
             ) : (
               <div className="p-3 text-center rounded border border-dashed border-slate-800 text-slate-500 text-[10px] font-mono uppercase bg-black/20">
@@ -351,17 +402,21 @@ export default function SocialFeedView() {
             )}
           </div>
 
-          {/* Action buttons */}
-          <div className="flex justify-end gap-2.5 pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                setEditingPostId(null);
-              }}
-              className="px-4 py-1.5 rounded border border-slate-800 bg-black/40 text-slate-400 hover:text-white hover:border-slate-700 text-xs font-mono transition-all lowercase"
-            >
-              [cancel]
-            </button>
+            {/* Action buttons */}
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (editPostPreviewUrl) {
+                    try { URL.revokeObjectURL(editPostPreviewUrl); } catch (e) {}
+                    setEditPostPreviewUrl(null);
+                  }
+                  setEditingPostId(null);
+                }}
+                className="px-4 py-1.5 rounded border border-slate-800 bg-black/40 text-slate-400 hover:text-white hover:border-slate-700 text-xs font-mono transition-all lowercase"
+              >
+                [cancel]
+              </button>
             <button
               type="button"
               onClick={() => handleSaveEdit(post.id)}
@@ -679,7 +734,7 @@ export default function SocialFeedView() {
                   <span>{isUploading ? 'UPLOADING...' : 'UPLOAD IMAGE FILE'}</span>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/png,image/jpeg,image/webp"
                     onChange={handleUploadImage}
                     disabled={isUploading}
                     className="hidden"
@@ -688,28 +743,38 @@ export default function SocialFeedView() {
               </div>
 
               {/* Dynamic Image Attached Preview indicator */}
-              {(uploadedImageUrl || selectedTemplate || postImageUrl) && (
+              {(createPostPreviewUrl || uploadedImageUrl || selectedTemplate || postImageUrl) && (
                 <div className="relative w-full h-24 rounded-lg overflow-hidden border border-white/5 mt-1">
                   <img
-                    src={uploadedImageUrl || selectedTemplate || postImageUrl || ''}
+                    src={createPostPreviewUrl || uploadedImageUrl || selectedTemplate || postImageUrl || ''}
                     alt="Attaching upload progress preview"
-                    className="w-full h-full object-cover opacity-90"
+                    className={`w-full h-full object-cover opacity-90 ${isUploading ? 'opacity-40 blur-[1px]' : ''}`}
                     referrerPolicy="no-referrer"
                   />
                   <button
                     type="button"
                     onClick={() => {
+                      if (createPostPreviewUrl) {
+                        try { URL.revokeObjectURL(createPostPreviewUrl); } catch (e) {}
+                        setCreatePostPreviewUrl(null);
+                      }
                       setUploadedImageUrl(null);
                       setPostImageUrl('');
                       setSelectedTemplate('');
                     }}
                     className="absolute top-1.5 right-1.5 p-1 rounded-full bg-black/80 hover:bg-black text-slate-400 hover:text-white transition-all border border-white/10"
+                    disabled={isUploading}
                   >
                     <X className="w-3 h-3" />
                   </button>
                   <span className="absolute bottom-1.5 left-1.5 text-[8px] font-mono bg-black/80 text-indigo-400 px-1.5 py-0.5 rounded border border-white/5 uppercase">
-                    {uploadedImageUrl ? 'Uploaded File' : selectedTemplate ? 'Preset Illustration' : 'Pasted URL'}
+                    {isUploading ? 'UPLOADING...' : createPostPreviewUrl ? 'Local Preview' : uploadedImageUrl ? 'Uploaded File' : selectedTemplate ? 'Preset Illustration' : 'Pasted URL'}
                   </span>
+                  {isUploading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                      <RefreshCw className="w-5 h-5 animate-spin text-indigo-400" />
+                    </div>
+                  )}
                 </div>
               )}
               {uploadError && (
@@ -779,6 +844,83 @@ export default function SocialFeedView() {
               <span className="font-mono text-[9px] text-indigo-400 block uppercase">{getUserRank(user.level).name} • Level {user.level}</span>
             </div>
           </div>
+        </div>
+
+        {/* NEW: PEOPLE ACTIVE TODAY DECK */}
+        <div className="p-4 rounded-xl border border-white/10 bg-white/5 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-slate-200">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <h4 className="font-display font-semibold text-xs uppercase tracking-wide">
+                GUARDIANS ACTIVE TODAY
+              </h4>
+            </div>
+            <span className="font-mono text-[9px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/10">
+              6 ACTIVE
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { name: "Lyra Vane", avatar: "avatar_2.png", streak: 12, action: "Breathing done" },
+              { name: "Kaelen Stoic", avatar: "avatar_5.png", streak: 8, action: "Sunlight done" },
+              { name: "Elena Code", avatar: "avatar_3.png", streak: 15, action: "Chore cleared" },
+              { name: "Vera Jade", avatar: "avatar_6.png", streak: 4, action: "Water drank" },
+              { name: "Zephyr Fin", avatar: "avatar_7.png", streak: 19, action: "Course lock" },
+              { name: user.username, avatar: user.avatar, streak: user.streak, action: "Online now" }
+            ].map((guy, gIdx) => (
+              <div 
+                key={gIdx} 
+                className="p-2 bg-black/40 border border-white/5 rounded-lg flex items-center gap-2 hover:bg-black/60 transition-all select-none"
+              >
+                <div className="w-7 h-7 rounded overflow-hidden border border-slate-800 flex items-center justify-center shrink-0">
+                  <AvatarImage src={guy.avatar} alt={guy.name} className="w-full h-full object-cover" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[10px] text-slate-200 block truncate font-medium">{guy.name}</span>
+                  <span className="text-[8px] text-emerald-400 font-mono block truncate uppercase">{guy.action} • {guy.streak}d🔥</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* NEW: TRENDING CHRONICLES INDEX */}
+        <div className="p-4 rounded-xl border border-white/10 bg-white/5 flex flex-col gap-3">
+          <div className="flex items-center gap-2 text-slate-200 pb-2 border-b border-white/5">
+            <Flame className="w-4 h-4 text-orange-400 animate-pulse" />
+            <h4 className="font-display font-semibold text-xs uppercase tracking-wide">
+              TRENDING BROADCASTS MATRIX
+            </h4>
+          </div>
+
+          <div className="space-y-3">
+            {[
+              { author: "Lyra Vane", body: "Completed 5 consecutive Breathing calibrations! Stabilizing circadian rhythms has fully transformed morning coding sprints.", hotness: "🔥 12 likes" },
+              { author: "Zephyr Fin", body: "Finally unlocked the 'Divine Scholar' Badge after conquering the React & Firebase full-stack architecture lessons! Highly recommended.", hotness: "🔥 8 likes" }
+            ].map((trend, tIdx) => (
+              <div key={tIdx} className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5 hover:bg-white/[0.04] transition-all">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="font-display font-bold text-indigo-300">{trend.author}</span>
+                  <span className="font-mono text-[9px] text-slate-500 uppercase">{trend.hotness}</span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1 lines-clamp-2 leading-relaxed font-sans">
+                  "{trend.body}"
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* NEW: LIVE BROADCAST TAPE (FOMO TELEMETRY ALERT) */}
+        <div className="p-4 rounded-xl bg-orange-500/5 border border-dashed border-orange-500/25 flex flex-col gap-1.5 animate-pulse">
+          <span className="font-mono text-[8px] text-orange-400 block uppercase font-bold tracking-widest">LIVE DISPATCH DECK</span>
+          <p className="text-[10.5px] text-slate-300 font-sans leading-relaxed">
+            ⚡ <strong>Kaelen Stoic</strong> secured the "Circadian Solar Lock-In" Daily Challenge! (+100 XP gained and streak extended to 8 days).
+          </p>
         </div>
 
         {/* FEED USABILITY MANUAL */}

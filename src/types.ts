@@ -31,6 +31,7 @@ export interface UserProfile {
   totalXp: number;
   streak: number;
   lastActiveDate?: string; // YYYY-MM-DD
+  lastChallengeCompletedDate?: string; // YYYY-MM-DD
   skills: UserSkills;
   badges: Badge[];
   createdAt: string;
@@ -50,6 +51,10 @@ export interface RPGTask {
   dueDate?: string | null; // YYYY-MM-DD
   recurring: 'none' | 'daily' | 'weekly';
   createdAt: string;
+  description?: string;
+  skillTreeId?: string;
+  skillNodeId?: string;
+  xpReward?: number;
 }
 
 export interface RPGComment {

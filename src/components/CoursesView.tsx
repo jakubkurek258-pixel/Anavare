@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { stateService } from '../lib/stateService';
+import { stateService, validateImage } from '../lib/stateService';
 import { SAMPLE_COURSES } from '../data/rpgAssets';
 import { Course, Lesson, UserLesson, TaskCategory } from '../types';
 import { BookOpen, GraduationCap, CheckCircle, Lock, PlayCircle, Eye, RefreshCw, Sparkles, AlertCircle, Camera, Trash2 } from 'lucide-react';
@@ -12,6 +12,11 @@ export default function CoursesView() {
   const [userLessons, setUserLessons] = useState<UserLesson[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
+
+  // Preview local states
+  const [courseImagePreview, setCourseImagePreview] = useState<string | null>(null);
+  const [lessonImagePreviews, setLessonImagePreviews] = useState<{ [key: number]: string }>({});
+  const [proofPreviewUrl, setProofPreviewUrl] = useState('');
 
   // Course Creator modal states
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -64,27 +69,50 @@ export default function CoursesView() {
     setProofUrl('');
     setProofType(null);
     setProofUploadError('');
+    if (proofPreviewUrl) {
+      try { URL.revokeObjectURL(proofPreviewUrl); } catch (e) {}
+    }
+    setProofPreviewUrl('');
   }, [selectedLesson?.id]);
 
   const handleProofUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-    setIsUploadingProof(true);
     setProofUploadError('');
     try {
-      const isImg = file.type.startsWith('image/');
-      const isVid = file.type.startsWith('video/');
+      const isImg = file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tiff'].includes(file.name.split('.').pop()?.toLowerCase() || '');
+      const isVid = file.type.startsWith('video/') || ['mp4', 'mov'].includes(file.name.split('.').pop()?.toLowerCase() || '');
       const type = isImg ? 'image' : isVid ? 'video' : null;
       if (!type) {
-        throw new Error('Only images and videos are supported for task verification!');
+        throw new Error('Only images (JPG, PNG, WEBP) and videos (MP4, MOV) are supported for task verification!');
       }
+
+      if (type === 'image') {
+        validateImage(file);
+      } else {
+        const maxVideoSize = 100 * 1024 * 1024; // 100 MB
+        if (file.size > maxVideoSize) {
+          throw new Error('The selected video is too large. Maximum size for video proof is 100 MB.');
+        }
+      }
+
+      const objectUrl = URL.createObjectURL(file);
+      setProofPreviewUrl(objectUrl);
+      setProofType(type);
+      setIsUploadingProof(true);
+
       const secureUrl = await stateService.uploadMedia(file, 'proofs', user.id);
       setProofUrl(secureUrl);
-      setProofType(type);
+
+      URL.revokeObjectURL(objectUrl);
+      setProofPreviewUrl('');
     } catch (err: any) {
       setProofUploadError(err?.message || 'Failed to seal proof file.');
+      setProofPreviewUrl('');
+      setProofType(null);
     } finally {
       setIsUploadingProof(false);
+      e.target.value = '';
     }
   };
 
@@ -92,16 +120,26 @@ export default function CoursesView() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsUploadingImage(true);
     setImageUploadError('');
 
     try {
+      validateImage(file);
+
+      const objectUrl = URL.createObjectURL(file);
+      setCourseImagePreview(objectUrl);
+      setIsUploadingImage(true);
+
       const downloadUrl = await stateService.uploadMedia(file, 'courses', user?.id || '');
       setNewCourseImage(downloadUrl);
+
+      URL.revokeObjectURL(objectUrl);
+      setCourseImagePreview(null);
     } catch (err: any) {
       setImageUploadError(err?.message || 'Failed to upload cover image.');
+      setCourseImagePreview(null);
     } finally {
       setIsUploadingImage(false);
+      e.target.value = '';
     }
   };
 
@@ -119,6 +157,7 @@ export default function CoursesView() {
       setVideoUploadError(err?.message || 'Failed to upload lesson video.');
     } finally {
       setUploadingVideoIdx(null);
+      e.target.value = '';
     }
   };
 
@@ -126,16 +165,34 @@ export default function CoursesView() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setUploadingLessonImageIdx(idx);
     setLessonImageUploadError('');
 
     try {
+      validateImage(file);
+
+      const objectUrl = URL.createObjectURL(file);
+      setLessonImagePreviews(prev => ({ ...prev, [idx]: objectUrl }));
+      setUploadingLessonImageIdx(idx);
+
       const downloadUrl = await stateService.uploadMedia(file, 'lessons_images', user?.id || '');
       handleLessonChange(idx, 'imageUrl', downloadUrl);
+
+      URL.revokeObjectURL(objectUrl);
+      setLessonImagePreviews(prev => {
+        const next = { ...prev };
+        delete next[idx];
+        return next;
+      });
     } catch (err: any) {
       setLessonImageUploadError(err?.message || 'Failed to upload lesson photo.');
+      setLessonImagePreviews(prev => {
+        const next = { ...prev };
+        delete next[idx];
+        return next;
+      });
     } finally {
       setUploadingLessonImageIdx(null);
+      e.target.value = '';
     }
   };
 
@@ -611,15 +668,15 @@ export default function CoursesView() {
                               {isUploadingProof ? 'Uploading...' : 'Select File (Img/Vid)'}
                               <input
                                 type="file"
-                                accept="image/*,video/*"
+                                accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime"
                                 onChange={handleProofUpload}
                                 className="hidden"
                                 disabled={isUploadingProof}
                               />
                             </label>
                             <div className="flex-1 text-left min-w-0">
-                              {proofUrl ? (
-                                <span className="text-[10px] text-emerald-400 font-mono block truncate">✓ Proof Uploaded: {proofUrl}</span>
+                              {(proofPreviewUrl || proofUrl) ? (
+                                <span className="text-[10px] text-emerald-400 font-mono block truncate">✓ Proof Uploaded: {proofPreviewUrl || proofUrl}</span>
                               ) : (
                                 <span className="text-[10px] text-slate-500 font-sans block">Share visual feedback coefficients (screenshots, records or photo proof).</span>
                               )}
@@ -628,21 +685,27 @@ export default function CoursesView() {
                           {proofUploadError && (
                             <p className="text-rose-400 text-[10px] font-mono mt-1">{proofUploadError}</p>
                           )}
-                          {proofUrl && (
-                            <div className="mt-2 text-left bg-black/55 p-2.5 rounded border border-white/5 max-w-sm">
+                          {(proofPreviewUrl || proofUrl) && (
+                            <div className="mt-2 text-left bg-black/55 p-2.5 rounded border border-white/5 max-w-sm relative">
                               {proofType === 'image' ? (
                                 <img
-                                  src={proofUrl}
+                                  src={proofPreviewUrl || proofUrl}
                                   alt="Proof visual payload"
-                                  className="max-h-36 rounded object-cover border border-white/10"
+                                  className={`max-h-36 rounded object-cover border border-white/10 ${isUploadingProof ? 'opacity-40 blur-[1px]' : ''}`}
                                   referrerPolicy="no-referrer"
                                 />
                               ) : (
                                 <video
-                                  src={proofUrl}
-                                  controls
-                                  className="max-h-36 w-full rounded bg-black"
+                                  src={proofPreviewUrl || proofUrl}
+                                  controls={!isUploadingProof}
+                                  className={`max-h-36 w-full rounded bg-black ${isUploadingProof ? 'opacity-40 blur-[1px]' : ''}`}
                                 />
+                              )}
+                              {isUploadingProof && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/35 gap-1.5 rounded">
+                                  <RefreshCw className="w-5 h-5 animate-spin text-indigo-400" />
+                                  <span className="text-[8.5px] text-indigo-200 font-mono uppercase tracking-widest animate-pulse font-semibold">Uploading...</span>
+                                </div>
                               )}
                             </div>
                           )}
@@ -763,17 +826,26 @@ export default function CoursesView() {
                   {imageUploadError && (
                     <p className="text-rose-400 text-[9px] font-mono mt-1">{imageUploadError}</p>
                   )}
-                  {newCourseImage && (
+                  {(courseImagePreview || newCourseImage) && (
                     <div className="mt-2 text-left flex items-center gap-2">
-                      <img
-                        src={newCourseImage}
-                        alt="Course Cover Preview"
-                        className="h-10 w-20 object-cover rounded border border-white/10"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                      <span className="text-[9.5px] font-mono text-emerald-400 block">✓ Cover Image Loaded</span>
+                      <div className="relative h-10 w-20 rounded overflow-hidden border border-white/10 shrink-0 flex items-center justify-center">
+                        <img
+                          src={courseImagePreview || newCourseImage}
+                          alt="Course Cover Preview"
+                          className={`h-full w-full object-cover ${isUploadingImage ? 'opacity-45 blur-[1px]' : ''}`}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                        {isUploadingImage && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                            <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[9.5px] font-mono text-emerald-400 block">
+                        {isUploadingImage ? 'Uploading image...' : '✓ Cover Image Loaded'}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -959,17 +1031,26 @@ export default function CoursesView() {
                           {lessonImageUploadError && uploadingLessonImageIdx === index && (
                             <p className="text-rose-400 text-[9px] font-mono mt-1">{lessonImageUploadError}</p>
                           )}
-                          {les.imageUrl && (
+                          {(lessonImagePreviews[index] || les.imageUrl) && (
                             <div className="mt-2 text-left bg-black/40 p-2 rounded border border-white/5 space-y-1">
-                              <img
-                                src={les.imageUrl}
-                                alt="Lesson preview"
-                                className="h-20 w-full object-cover rounded border border-white/5"
-                                onError={(e) => {
-                                  // gracefully fallback if media path is broken
-                                }}
-                              />
-                              <span className="text-[9px] font-mono text-emerald-400 block">✓ Photo Added ({les.imageUrl.startsWith('data:') ? 'Local buffer' : 'Cloud'})</span>
+                              <div className="relative w-full h-20 rounded overflow-hidden border border-white/5 flex items-center justify-center">
+                                <img
+                                  src={lessonImagePreviews[index] || les.imageUrl}
+                                  alt="Lesson preview"
+                                  className={`h-full w-full object-cover ${uploadingLessonImageIdx === index ? 'opacity-45 blur-[1px]' : ''}`}
+                                  onError={(e) => {
+                                    // gracefully fallback if media path is broken
+                                  }}
+                                />
+                                {uploadingLessonImageIdx === index && (
+                                  <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                                    <RefreshCw className="w-5 h-5 animate-spin text-indigo-400" />
+                                  </div>
+                                )}
+                              </div>
+                              <span className="text-[9px] font-mono text-emerald-400 block">
+                                {uploadingLessonImageIdx === index ? 'Uploading image...' : `✓ Photo Added (${(lessonImagePreviews[index] || les.imageUrl)?.startsWith('data:') ? 'Local preview' : 'Cloud'})`}
+                              </span>
                             </div>
                           )}
                         </div>
