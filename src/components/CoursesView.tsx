@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { stateService, validateImage } from '../lib/stateService';
+import { trackEvent } from '../lib/firebase';
 import { SAMPLE_COURSES } from '../data/rpgAssets';
 import { Course, Lesson, UserLesson, TaskCategory } from '../types';
 import { BookOpen, GraduationCap, CheckCircle, Lock, PlayCircle, Eye, RefreshCw, Sparkles, AlertCircle, Camera, Trash2 } from 'lucide-react';
@@ -82,23 +83,20 @@ export default function CoursesView() {
     try {
       const isImg = file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tiff'].includes(file.name.split('.').pop()?.toLowerCase() || '');
       const isVid = file.type.startsWith('video/') || ['mp4', 'mov'].includes(file.name.split('.').pop()?.toLowerCase() || '');
-      const type = isImg ? 'image' : isVid ? 'video' : null;
-      if (!type) {
-        throw new Error('Only images (JPG, PNG, WEBP) and videos (MP4, MOV) are supported for task verification!');
+      
+      if (isVid) {
+        throw new Error('Video uploads are temporarily disabled');
       }
 
-      if (type === 'image') {
-        validateImage(file);
-      } else {
-        const maxVideoSize = 100 * 1024 * 1024; // 100 MB
-        if (file.size > maxVideoSize) {
-          throw new Error('The selected video is too large. Maximum size for video proof is 100 MB.');
-        }
+      if (!isImg) {
+        throw new Error('Only images (JPG, PNG, WEBP) are supported for task verification!');
       }
+
+      validateImage(file);
 
       const objectUrl = URL.createObjectURL(file);
       setProofPreviewUrl(objectUrl);
-      setProofType(type);
+      setProofType('image');
       setIsUploadingProof(true);
 
       const secureUrl = await stateService.uploadMedia(file, 'proofs', user.id);
@@ -247,6 +245,13 @@ export default function CoursesView() {
         proofUrl || undefined, 
         proofType || undefined
       );
+      trackEvent('complete_lesson', { 
+        course_id: course.id, 
+        course_name: course.title, 
+        lesson_id: lesson.id, 
+        lesson_title: lesson.title, 
+        xp_reward: lesson.xpReward 
+      });
       setProofUrl('');
       setProofType(null);
       // Automatically refresh active references
@@ -312,6 +317,13 @@ export default function CoursesView() {
         newCourseImage || 'https://images.unsplash.com/photo-1549490349-8643362247b5?w=400&q=80',
         newCourseLessons as Lesson[]
       );
+
+      trackEvent('create_course', { 
+        course_title: newCourseTitle, 
+        course_category: newCourseCategory, 
+        lessons_count: newCourseLessons.length, 
+        xp_value: xpReward 
+      });
 
       setIsCreateModalOpen(false);
       setNewCourseTitle('');
@@ -665,10 +677,10 @@ export default function CoursesView() {
                               ) : (
                                 <Camera className="w-4 h-4" />
                               )}
-                              {isUploadingProof ? 'Uploading...' : 'Select File (Img/Vid)'}
+                              {isUploadingProof ? 'Uploading...' : 'Select File (Image Only)'}
                               <input
                                 type="file"
-                                accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime"
+                                accept="image/png,image/jpeg,image/webp"
                                 onChange={handleProofUpload}
                                 className="hidden"
                                 disabled={isUploadingProof}
@@ -678,7 +690,7 @@ export default function CoursesView() {
                               {(proofPreviewUrl || proofUrl) ? (
                                 <span className="text-[10px] text-emerald-400 font-mono block truncate">✓ Proof Uploaded: {proofPreviewUrl || proofUrl}</span>
                               ) : (
-                                <span className="text-[10px] text-slate-500 font-sans block">Share visual feedback coefficients (screenshots, records or photo proof).</span>
+                                <span className="text-[10px] text-slate-500 font-sans block">Share visual feedback coefficients (screenshots or photo proof).</span>
                               )}
                             </div>
                           </div>
@@ -959,50 +971,7 @@ export default function CoursesView() {
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-[9px] font-mono text-slate-400 mb-1 text-left uppercase">Lesson Video File (Optional)</label>
-                          <div className="flex gap-2">
-                            <input
-                              type="url"
-                              value={les.videoUrl || ''}
-                              placeholder="Video URL or upload a file"
-                              onChange={(e) => handleLessonChange(index, 'videoUrl', e.target.value)}
-                              className="flex-1 bg-slate-900 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white outline-none"
-                            />
-                            <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 rounded font-mono text-[9px] uppercase cursor-pointer flex items-center justify-center min-w-[95px] text-center shrink-0">
-                              {uploadingVideoIdx === index ? (
-                                <RefreshCw className="w-3 h-3 animate-spin" />
-                              ) : (
-                                'Video'
-                              )}
-                              <input
-                                type="file"
-                                accept="video/mp4,video/webm,video/quicktime"
-                                onChange={(e) => handleVideoUpload(index, e)}
-                                className="hidden"
-                                disabled={uploadingVideoIdx !== null}
-                              />
-                            </label>
-                          </div>
-                          {videoUploadError && uploadingVideoIdx === index && (
-                            <p className="text-rose-400 text-[9px] font-mono mt-1">{videoUploadError}</p>
-                          )}
-                          {les.videoUrl && (
-                            <div className="mt-2 text-left bg-black/40 p-2 rounded border border-white/5 space-y-1">
-                              <video
-                                src={les.videoUrl}
-                                controls
-                                className="w-full max-h-32 rounded bg-black"
-                                onError={(e) => {
-                                  // gracefully fallback if media path is broken or initializing
-                                }}
-                              />
-                              <span className="text-[9px] font-mono text-indigo-400 block">✓ Video Added ({les.videoUrl.startsWith('data:') ? 'Local buffer' : 'Cloud'})</span>
-                            </div>
-                          )}
-                        </div>
-
+                      <div className="grid grid-cols-1 gap-4">
                         <div>
                           <label className="block text-[9px] font-mono text-slate-400 mb-1 text-left uppercase">Lesson Photo (Optional)</label>
                           <div className="flex gap-2">

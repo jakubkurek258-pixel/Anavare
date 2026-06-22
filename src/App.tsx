@@ -4,6 +4,7 @@ import { trackEvent } from './lib/firebase';
 import LoginView from './components/LoginView';
 import LandingView from './components/LandingView';
 import DashboardView from './components/DashboardView';
+import { GamificationProvider } from './context/GamificationContext';
 import SkillProgressView from './components/SkillProgressView';
 import CoursesView from './components/CoursesView';
 import SocialFeedView from './components/SocialFeedView';
@@ -327,7 +328,11 @@ function AppContent() {
   }
 
   if (user) {
-    return <MasterGameConsole />;
+    return (
+      <GamificationProvider>
+        <MasterGameConsole />
+      </GamificationProvider>
+    );
   }
 
   if (showAuth) {

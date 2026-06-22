@@ -3,18 +3,24 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getAnalytics, logEvent, isSupported } from 'firebase/analytics';
-import firebaseConfigJson from '../../firebase-applet-config.json';
 
-// Support both environment variables (required for Vercel) and the JSON fallback file
+declare global {
+  interface Window {
+    dataLayer?: any[];
+    gtag?: (...args: any[]) => void;
+  }
+}
+
+// Support environment variables (required for secure deployment) and safe mock fallbacks for local-first testing
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigJson.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigJson.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfigJson.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigJson.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigJson.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfigJson.appId,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfigJson.measurementId,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || firebaseConfigJson.firestoreDatabaseId || "(default)"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "mock-api-key",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "mock-auth-domain",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "mock-project",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "mock-storage-bucket",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "mock-sender-id",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "mock-app-id",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "mock-measurement-id",
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || "(default)"
 };
 
 export enum OperationType {
@@ -55,6 +61,70 @@ let dbInstance: any = null;
 let authInstance: any = null;
 let storageInstance: any = null;
 
+let gtagInitialized = false;
+
+function initGtag(measurementId: string) {
+  if (typeof window === 'undefined') {
+    console.warn("[Analytics] Analytics not supported in this environment");
+    return;
+  }
+  
+  if (gtagInitialized) return;
+
+  try {
+    // 1. Initialize dataLayer and gtag function
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () {
+      window.dataLayer!.push(arguments);
+    };
+
+    // 2. Configure default options and debug_mode for DebugView/Realtime
+    window.gtag('js', new Date());
+    window.gtag('config', measurementId, {
+      cookie_flags: 'max-age=7200;Secure;SameSite=None', // Critical for iframe/sandboxes (Google AI Studio preview runs in an iframe)
+      debug_mode: true, // Forces immediate dispatch and appears in GA4 DebugView
+      send_page_view: true
+    });
+
+    // 3. Inject the standard GA4 gtag.js script from Google CDN
+    const scriptId = 'google-analytics-gtag-script';
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.async = true;
+      script.src = `https://www.googletagmanager.com/gtag/js?id=${measurementId}`;
+      
+      script.onload = () => {
+        console.log("[Analytics] Initialized successfully");
+        // Trigger a guaranteed test event on load for Realtime & DebugView verification
+        trackEvent('app_analytics_init', { timing: 'on_successful_script_load' });
+      };
+      script.onerror = (err) => {
+        console.error(`[Analytics] Failed to load gtag.js script from Google tagmanager CDN. Error:`, err);
+      };
+      
+      document.head.appendChild(script);
+    } else {
+      console.log("[Analytics] Initialized successfully");
+    }
+
+    gtagInitialized = true;
+  } catch (err) {
+    console.error("[Analytics] Error during GA4 gtag initialization:", err);
+  }
+}
+
+// Safe browser-only tag initialization regardless of Firebase database mock status
+if (typeof window !== 'undefined') {
+  if (firebaseConfig.measurementId && firebaseConfig.measurementId !== 'mock') {
+    initGtag(firebaseConfig.measurementId);
+  } else {
+    console.warn("[Analytics] Analytics not supported in this environment");
+  }
+} else {
+  console.warn("[Analytics] Analytics not supported in this environment");
+}
+
 if (!isMockConfig) {
   try {
     app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -74,19 +144,19 @@ if (!isMockConfig) {
     storageInstance = getStorage(app);
     console.log("Firebase initialized successfully with real credentials and forced long-polling.");
 
-    // Safe browser-only Firebase Analytics initialization
+    // Safe browser-only Firebase Analytics SDK companion registration
     if (typeof window !== 'undefined') {
       isSupported().then((supported) => {
         if (supported && app) {
-          analytics = getAnalytics(app);
-          console.log("Firebase Analytics initialized successfully.");
-          // Trigger the required test event for verification with Firebase DebugView
-          trackEvent('test_event', { timing: 'on_init' });
-        } else {
-          console.warn("Firebase Analytics is not supported in this environment/browser.");
+          try {
+            analytics = getAnalytics(app);
+            console.log("[Analytics] Firebase Analytics companion registered successfully.");
+          } catch (e) {
+            console.warn("[Analytics] Firebase getAnalytics failed, relying fully on direct gtag.js client.", e);
+          }
         }
       }).catch((err) => {
-        console.warn("Could not check if Firebase Analytics is supported:", err);
+        console.warn("[Analytics] Could not check if Firebase Analytics companion supported:", err);
       });
     }
   } catch (error) {
@@ -103,15 +173,42 @@ export const isFirebaseEnabled = !isMockConfig && dbInstance !== null && authIns
 
 // Reusable helper function for tracking analytics events
 export function trackEvent(eventName: string, params?: object) {
+  const enrichParams = {
+    ...(params || {}),
+    timestamp: new Date().toISOString(),
+    environment: import.meta.env.MODE || 'development',
+    window_location: typeof window !== 'undefined' ? window.location.href : 'ssr',
+    is_iframe: typeof window !== 'undefined' ? (window.self !== window.top) : false
+  };
+
+  let sentViaGtag = false;
+  let sentViaFirebase = false;
+
+  // 1. Try sending via direct gtag.js first (most reliable, sandbox/cookie compliant)
+  if (typeof window !== 'undefined' && typeof window.gtag === 'function') {
+    try {
+      window.gtag('event', eventName, enrichParams);
+      sentViaGtag = true;
+    } catch (error) {
+      console.error(`[Analytics] Error tracking event via standard gtag for "${eventName}":`, error);
+    }
+  }
+
+  // 2. Try tracking via Firebase Analytics package
   if (analytics) {
     try {
-      logEvent(analytics, eventName, params);
-      console.log(`[Firebase Analytics] Event tracked: "${eventName}"`, params);
+      logEvent(analytics, eventName, enrichParams);
+      sentViaFirebase = true;
     } catch (error) {
-      console.error(`[Firebase Analytics] Error tracking event "${eventName}":`, error);
+      console.error(`[Analytics] Error tracking event via Firebase SDK wrapper for "${eventName}":`, error);
     }
+  }
+
+  if (sentViaGtag || sentViaFirebase) {
+    console.log(`[Analytics] Event sent: ${eventName}`, enrichParams);
   } else {
-    console.warn(`[Firebase Analytics] Analytics not active. Ignored event "${eventName}".`);
+    // Fallback logging if analytics is disabled / blocked / not supported
+    console.warn(`[Analytics] Analytics disabled or blocked. Fallback tracked locally: "${eventName}"`, enrichParams);
   }
 }
 

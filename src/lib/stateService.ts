@@ -18,7 +18,7 @@ import {
   writeBatch,
   runTransaction
 } from 'firebase/firestore';
-import { db, auth, isFirebaseEnabled, OperationType, handleFirestoreError, storage } from './firebase';
+import { db, auth, isFirebaseEnabled, OperationType, handleFirestoreError, storage, trackEvent } from './firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   UserProfile, 
@@ -653,71 +653,56 @@ async function syncLeaderboardFields(userId: string, fields: Partial<UserProfile
 
 /**
  * Validates whether a file is an allowed image format (jpg, jpeg, png, webp)
- * and satisfies the maximum file size requirement (2MB).
+ * and satisfies the maximum file size requirement (3MB).
  * Throws a descriptive ValidationError if validation fails.
  */
 export function validateImage(file: File): void {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   const mime = file.type.toLowerCase();
 
+  // 1. Is it a video? Block absolutely.
+  const isVideo = mime.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv', 'wmv'].includes(ext);
+  if (isVideo) {
+    throw new Error('Video uploads are temporarily disabled');
+  }
+
+  // 2. Allow ONLY: image/jpeg, image/png, image/webp. Reject everything else.
   const isJpg = mime === 'image/jpeg' || ext === 'jpg' || ext === 'jpeg';
   const isPng = mime === 'image/png' || ext === 'png';
   const isWebp = mime === 'image/webp' || ext === 'webp';
-  const isImageGroup = mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tiff'].includes(ext);
+  const isAllowedImage = isJpg || isPng || isWebp;
 
-  if (isImageGroup) {
-    if (!isJpg && !isPng && !isWebp) {
-      throw new Error('Unsupported image format. Allowed formats: JPG, JPEG, PNG, or WEBP only.');
-    }
-    
-    const maxImageSize = 2 * 1024 * 1024; // 2 MB
-    if (file.size > maxImageSize) {
-      throw new Error('The selected image is too large. Maximum size for image uploads is 2 MB.');
-    }
+  if (!isAllowedImage) {
+    throw new Error('Unsupported image format. Allowed formats: JPG, JPEG, PNG, or WEBP only.');
+  }
+
+  // 3. Size check: 3MB
+  const maxImageSize = 3 * 1024 * 1024; // 3 MB
+  if (file.size > maxImageSize) {
+    throw new Error('File too large. Max size is 3MB.');
   }
 }
 
 /**
  * Cloudinary Universal Upload Helper
- * Conforms to:
- * - Cloud name: duhjznmfp
- * - Unsigned upload preset: rpg_upload
- * - Endpoint: https://api.cloudinary.com/v1_1/duhjznmfp/ or https://api.cloudinary.com/v1_1/rpgapp123/
+ * Uses environment variables:
+ * - VITE_CLOUDINARY_CLOUD_NAME
+ * - VITE_CLOUDINARY_UPLOAD_PRESET
  */
 export async function uploadFile(file: File): Promise<string> {
-  const ext = file.name.split('.').pop()?.toLowerCase() || '';
-  const mime = file.type.toLowerCase();
-
-  const isJpg = mime === 'image/jpeg' || ext === 'jpg' || ext === 'jpeg';
-  const isPng = mime === 'image/png' || ext === 'png';
-  const isWebp = mime === 'image/webp' || ext === 'webp';
-  const isImageValidated = isJpg || isPng || isWebp;
-
-  const isMp4 = mime === 'video/mp4' || ext === 'mp4';
-  const isMov = mime === 'video/quicktime' || mime === 'video/x-quicktime' || mime === 'video/mov' || ext === 'mov';
-  const isVideoValidated = isMp4 || isMov;
-
   // Let's run robust validation first
-  if (isImageValidated || mime.startsWith('image/')) {
-    validateImage(file);
-  } else if (!isVideoValidated) {
-    throw new Error('Unsupported file format. Images must be: jpg, jpeg, png, webp. Videos must be: mp4, mov.');
-  }
+  validateImage(file);
 
-  if (isVideoValidated) {
-    const maxVideoSize = 100 * 1024 * 1024; // 100 MB
-    if (file.size > maxVideoSize) {
-      throw new Error('The selected video is too large. Maximum size for video uploads is 100 MB.');
-    }
-  }
+  const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+  const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
-  const resourceType = isImageValidated ? 'image' : 'video';
-  const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'duhjznmfp';
-  const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'rpg_upload';
+  if (!cloudName || !uploadPreset) {
+    throw new Error('Cloudinary environment configuration (VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET) is missing.');
+  }
 
   // Build both endpoint templates to guarantee matching whatever config preset rules are active.
   const uploadEndpoints = [
-    `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
+    `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
     `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`
   ];
 
@@ -765,15 +750,53 @@ export const stateService = {
     if (!userId) {
       throw new Error('Only authenticated users can upload media.');
     }
-    // Check if user is spamming uploads or trying to upload duplicates
-    antiSpam.checkUpload(userId, file);
 
-    // Perform Cloudinary Upload bypassing Firebase Storage completely!
-    const downloadUrl = await uploadFile(file);
+    try {
+      // Validate format, block videos, validate size (3MB limit)
+      validateImage(file);
 
-    // Register successful upload log
-    antiSpam.registerUpload(userId, file);
-    return downloadUrl;
+      // Check anti-spam and daily budget constraints (cooldown 15s, max 5/day limit)
+      antiSpam.checkUpload(userId, file);
+
+      // Perform Cloudinary Upload
+      const downloadUrl = await uploadFile(file);
+
+      // Register successful upload
+      antiSpam.registerUpload(userId, file);
+
+      // Track successful upload event
+      try {
+        trackEvent('upload_success', {
+          userId,
+          folder,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type
+        });
+      } catch (trackError) {
+        console.warn('Failed to track upload success event:', trackError);
+      }
+
+      return downloadUrl;
+    } catch (err: any) {
+      const blockedReason = err?.message || 'unknown_validation_error';
+
+      // Track blocked upload reason event
+      try {
+        trackEvent('upload_blocked_reason', {
+          userId,
+          folder,
+          reason: blockedReason,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type
+        });
+      } catch (trackError) {
+        console.warn('Failed to track upload blocked reason event:', trackError);
+      }
+
+      throw err;
+    }
   },
 
   // -----------------------------------------

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { stateService, getXpReward } from '../lib/stateService';
+import { trackEvent } from '../lib/firebase';
 import { RPGTask, TaskCategory, TaskDifficulty, RPGPost } from '../types';
 import { getUserRank } from '../lib/rankSystem';
 import AvatarImage from './AvatarImage';
@@ -16,18 +17,28 @@ import { motion, AnimatePresence } from 'motion/react';
 const DAILY_CHALLENGES = [
   {
     id: "breathing_calibration",
-    title: "Synchronized Breathing Calibration",
-    desc: "Perform 5 cycles of controlled diaphragmatic breathing to stabilize neural active focus, align oxygenation margins, and zero out peripheral cognitive drag.",
+    title: "Neural Lung Core Calibration",
+    desc: "Release cognitive fatigue and stabilize focus. Perform 5 cycles of calming, slow diaphragmatic breathing (5s inhale, 2s gentle hold, 7s smooth exhale).",
     category: "mindset" as TaskCategory,
     xpReward: 100,
-    icon: "🧬",
-    instruction: "Breathe in harmony with the glowing core expansion. Inhale as it expands, hold as it glows, and exhale as it deepens.",
+    icon: "🌬️",
+    instruction: "Breathe in harmony with the glowing core expansion. Follow the expanding ring's rhythm, and lock your focus into the flow.",
     type: "breathing"
   },
   {
-    id: "sunlight_calibration",
-    title: "Circadian Solar Lock-In",
-    desc: "Expose your vision to direct outdoor solar rays for 10-15 minutes (without looking directly at the sun) to suppress melatonin synthesis and anchor metabolic engines.",
+    id: "hydration_wake",
+    title: "The First Splash: Awakening Hydration",
+    desc: "Instantly wake up your digestive organs and cells by drinking 1 tall glass of pure, cool water right after waking up.",
+    category: "health" as TaskCategory,
+    xpReward: 100,
+    icon: "💧",
+    instruction: "Drink up! Rehydrating early boosts cognitive function and metabolizes overnight sleep fatigue.",
+    type: "hydration"
+  },
+  {
+    id: "morning_light",
+    title: "Circadian Solar Anchor Protocol",
+    desc: "Spend 10-15 minutes outside in indirect natural morning sunlight to anchor your sleep cycle and kickstart biological dopamine levels.",
     category: "health" as TaskCategory,
     xpReward: 100,
     icon: "🌅",
@@ -35,24 +46,284 @@ const DAILY_CHALLENGES = [
     type: "sunlight"
   },
   {
-    id: "hydration_matrix",
-    title: "Hydration Threshold Activation",
-    desc: "Ingest 1 full liter (approx. 32oz) of filtered room temperature water immediately to prime digestive fluid channels and trigger metabolic cell recovery.",
-    category: "health" as TaskCategory,
+    id: "workspace_declutter",
+    title: "Deconstruct the Chaos: 10-Min Space Purge",
+    desc: "A tidy physical space leads directly to a focused mind. Clean, organize, or micro-declutter your desk or room for exactly 10 minutes.",
+    category: "productivity" as TaskCategory,
     xpReward: 100,
-    icon: "💧",
-    instruction: "Consume a full container of water to initiate cellular energy engines.",
-    type: "hydration"
+    icon: "🧹",
+    instruction: "Put away the clutter! Clear your visual field to build robust mental clarity indexes.",
+    type: "generic"
   },
   {
-    id: "pomodoro_focus",
-    title: "Deep Workspace Lockout Protocol",
-    desc: "Shut down all non-essential application windows and coordinate 25 minutes of zero-distraction deep work on your primary intellectual goal today.",
+    id: "gentle_mobility",
+    title: "Joint Harmonizer: 5-Min Fluid Mobility",
+    desc: "Release stored physical tension. Spend 5 minutes working on slow, soothing hip and shoulder ranges of motion.",
+    category: "fitness" as TaskCategory,
+    xpReward: 100,
+    icon: "🧘",
+    instruction: "Follow basic slow circular joint rotations. Gentle, soothing, and fully restorative.",
+    type: "generic"
+  },
+  {
+    id: "pomodoro_activation",
+    title: "Quantum Focus Block: The Pomodoro Lock",
+    desc: "Execute a zero-distraction 25-minute Pomodoro deep work sprint on your highest-leverage goal of the day.",
     category: "productivity" as TaskCategory,
     xpReward: 100,
     icon: "⏱️",
-    instruction: "Lock yourself in for a 25-minute Pomodoro deep work sequence.",
+    instruction: "Lock yourself in for a 25-minute Pomodoro deep work sequence. Silence the sensory net.",
     type: "pomodoro"
+  },
+  {
+    id: "nasal_breathing",
+    title: "Stoic Oxygenation: 3-Min Nasal Flow",
+    desc: "Breathe only through your nose for 3 minutes. Nasal breathing increases filtration, filters allergens, and switches the brain to calm focus.",
+    category: "mindset" as TaskCategory,
+    xpReward: 100,
+    icon: "👃",
+    instruction: "Inhale and exhale purely through the nasal passages. Breathe deeply down into your belly.",
+    type: "generic"
+  },
+  {
+    id: "quick_workout",
+    title: "The Spark: 10-Min Rapid Workout",
+    desc: "No gym? No problem. Complete a quick, energetic 10-minute bodyweight circuit or active movement to boost chemical endorphins.",
+    category: "fitness" as TaskCategory,
+    xpReward: 100,
+    icon: "⚡",
+    instruction: "Perform simple squats, jumping jacks, or pushups. Just get the kinetic engine active.",
+    type: "generic"
+  },
+  {
+    id: "digital_detox_morning",
+    title: "Mind Shield: 1-Hour Morning Screen Detox",
+    desc: "Do not check any social media, notification networks, or feed algorithms for the first 60 minutes after waking up.",
+    category: "productivity" as TaskCategory,
+    xpReward: 100,
+    icon: "📵",
+    instruction: "Keep your mind clear of external dopamine triggers during your golden first hour of consciousness.",
+    type: "generic"
+  },
+  {
+    id: "slow_deep_breath",
+    title: "Waking Up: 10 Deep conscious breaths",
+    desc: "Right after wake up, sit upright and take 10 deep, conscious chest and belly expansions to oxygenate your blood.",
+    category: "mindset" as TaskCategory,
+    xpReward: 100,
+    icon: "🌬️",
+    instruction: "Slow, deep, conscious expansions of your belly. No rush, absolute clarity.",
+    type: "generic"
+  },
+  {
+    id: "hydration_marathon",
+    title: "Water Forge: The 2-Liter Milestones",
+    desc: "Keep somatic hydration parameters steady! Consume at least 2 full liters of pure water throughout the day.",
+    category: "health" as TaskCategory,
+    xpReward: 100,
+    icon: "🥛",
+    instruction: "Log your progress. Carry a water bottle with you and keep taking gentle sips to stay peak energized.",
+    type: "generic"
+  },
+  {
+    id: "unprocessed_meal",
+    title: "Somatic Fuel: Clean Earth-Grown Meal",
+    desc: "Nourish your cells with high-quality nutrients. Eat at least one fully unprocessed, nutrient-dense natural meal today.",
+    category: "health" as TaskCategory,
+    xpReward: 100,
+    icon: "🥗",
+    instruction: "Choose fresh vegetables, clean proteins, and whole foods. Avoid processed ingredients for this block.",
+    type: "generic"
+  },
+  {
+    id: "no_sugary_drinks",
+    title: "Zero Sugar Rush: Pure Liquid Discipline",
+    desc: "Eliminate sugary sodas, energy drinks, and highly sweetened beverages for the entire day. Hydrate with water or tea.",
+    category: "health" as TaskCategory,
+    xpReward: 100,
+    icon: "🚫",
+    instruction: "Protect your metabolism, reduce brain fog, and lock in consistent, non-flickering energy levels.",
+    type: "generic"
+  },
+  {
+    id: "power_squats",
+    title: "Lower Core Blast: 20 Stoic Squats",
+    desc: "Perform 20 controlled, full-range air squats to activate your system's largest muscle groups and boost circulation.",
+    category: "fitness" as TaskCategory,
+    xpReward: 100,
+    icon: "🦵",
+    instruction: "Keep your chest up, heels flat on the floor, and drop your posture knee-parallel.",
+    type: "generic"
+  },
+  {
+    id: "pushup_matrix",
+    title: "Upper Core Forge: 10 Calibrated Push-Ups",
+    desc: "Strengthen your shoulder and chest chain. Complete 10 standard push-ups (or knee push-ups / incline pushups).",
+    category: "fitness" as TaskCategory,
+    xpReward: 100,
+    icon: "💪",
+    instruction: "Keep your core locked tight, lower slowly, and push away from the earth as one unified frame.",
+    type: "generic"
+  },
+  {
+    id: "focused_learning",
+    title: "Neural Expansion: 10-Min Lesson Session",
+    desc: "Spend 10 minutes intentionally learning something completely new—read a science article, watch an educational tutorial, or practice coding.",
+    category: "learning" as TaskCategory,
+    xpReward: 100,
+    icon: "🧠",
+    instruction: "Expand your theoretical horizons. Feed your brain raw information coordinates and take brief synthesis notes.",
+    type: "generic"
+  },
+  {
+    id: "daily_clean_walk",
+    title: "The Explorer's Path: 20-Min Recovery Walk",
+    desc: "Engage in a scenic 20-minute outdoor walk to active-recover tired muscles, clear high stress levels, and let the brain wander.",
+    category: "fitness" as TaskCategory,
+    xpReward: 100,
+    icon: "🚶",
+    instruction: "A simple walk down the block with no active phone distractions. Absorb the surroundings.",
+    type: "generic"
+  },
+  {
+    id: "five_min_silence",
+    title: "Zen Frequency: 5 Minutes of Pure Silence",
+    desc: "Sit in absolute, quiet stillness with zero sensory loops (no music, no screens, no reading) for 5 minutes.",
+    category: "mindset" as TaskCategory,
+    xpReward: 100,
+    icon: "🧘",
+    instruction: "Quiet the ambient noise. Let your thoughts pass by like harmless clouds on radar.",
+    type: "generic"
+  },
+  {
+    id: "read_pages",
+    title: "Tome Synthesis: 5 to 10 Book Pages",
+    desc: "Read 5 to 10 pages of any physical book or specialized non-fiction publication text to boost intellectual depth.",
+    category: "learning" as TaskCategory,
+    xpReward: 100,
+    icon: "📚",
+    instruction: "Build deeper comprehension. Slow down your focus and absorb high-density written concepts.",
+    type: "generic"
+  },
+  {
+    id: "self_improvement_reflect",
+    title: "The Self-Mirror: Evolution Logging",
+    desc: "Reflect and write down exactly one behavioral trend, habit, or attribute in yourself you wish to intentionally refine.",
+    category: "mindset" as TaskCategory,
+    xpReward: 100,
+    icon: "📝",
+    instruction: "Honest, stoic self-acknowledgement is the core cornerstone of behavioral level-ups.",
+    type: "generic"
+  },
+  {
+    id: "one_kind_act",
+    title: "Empathetic Catalyst: One Kind Gesture",
+    desc: "Do something genuinely kind, helpful, or encouraging for someone else today with absolute humility.",
+    category: "mindset" as TaskCategory,
+    xpReward: 100,
+    icon: "❤️",
+    instruction: "Text a supportive message, help a friend finish an errand, or encourage a peer. Connect human nodes.",
+    type: "generic"
+  },
+  {
+    id: "five_min_stretching",
+    title: "Spinal Decompression: 10-Min Full Stretch",
+    desc: "Slowly lengthen your muscle fibers. Spend 10 minutes in a full-body stretching sequence, focusing on leg and neck tension.",
+    category: "fitness" as TaskCategory,
+    xpReward: 100,
+    icon: "🙆",
+    instruction: "Hold each stretch gently for 20-30 seconds. Do not bounce—just breathe through the muscle release.",
+    type: "generic"
+  },
+  {
+    id: "no_phone_block",
+    title: "Deep Presence: 30-Min Phone Lockout",
+    desc: "Place your phone in another room or inside a closed drawer for exactly 30 minutes while awake to reset attention parameters.",
+    category: "productivity" as TaskCategory,
+    xpReward: 100,
+    icon: "📵",
+    instruction: "Silence the visual and digital attention hooks. Restore your dopamine baseline.",
+    type: "generic"
+  },
+  {
+    id: "avoided_task",
+    title: "Slaying the Dragon: Tackle One Avoided Task",
+    desc: "Identify that one high-resistance chore or task you have been procrastinating, and spend at least 10 minutes working on it.",
+    category: "productivity" as TaskCategory,
+    xpReward: 100,
+    icon: "🎯",
+    instruction: "Action cures fear. Start the task immediately; you'll find the resistance melts away within minutes.",
+    type: "generic"
+  },
+  {
+    id: "plan_tomorrow",
+    title: "Tactical Blueprint: Plan Tomorrow Today",
+    desc: "Specify your top 3 critical objectives for tomorrow. Write them down so you can wake up with absolute tactical velocity.",
+    category: "productivity" as TaskCategory,
+    xpReward: 100,
+    icon: "📋",
+    instruction: "Do not leave tomorrow to chance. Anchor your intentions and plan your offensive.",
+    type: "generic"
+  },
+  {
+    id: "plank_hold",
+    title: "Defensive Vault: Plank Endurance Hold",
+    desc: "Perform a plank hold to test and align core defense. Attempt to hold standard correct position for up to 2 minutes.",
+    category: "fitness" as TaskCategory,
+    xpReward: 100,
+    icon: "🛡️",
+    instruction: "Elbows aligned beneath shoulders, neck neutral, belly tight. Hold the matrix line.",
+    type: "generic"
+  },
+  {
+    id: "consume_greens",
+    title: "Biological Optimizer: Eat Unprocessed Greens",
+    desc: "Ensure cellular vitality by eating at least one fresh fruit or dark green raw vegetable today.",
+    category: "health" as TaskCategory,
+    xpReward: 100,
+    icon: "🥦",
+    instruction: "Provide vital micronutrients, minerals, and natural fiber to fuel your biological engine.",
+    type: "generic"
+  },
+  {
+    id: "one_min_gratitude",
+    title: "Wealth Index: 1-Min Relentless Gratitude",
+    desc: "Spend 1 minute reviewing exactly 3 separate aspects of your current life context that you are deeply grateful for.",
+    category: "mindset" as TaskCategory,
+    xpReward: 100,
+    icon: "🙏",
+    instruction: "Notice the simple abundance present around you. Shift your mental paradigm from scarcity to wealth.",
+    type: "generic"
+  },
+  {
+    id: "victory_journal",
+    title: "Victory Ledger: 3 Wins of the Day",
+    desc: "Write down exactly 3 small things or actions you did well or handled with excellence today to lock in confidence.",
+    category: "mindset" as TaskCategory,
+    xpReward: 100,
+    icon: "🌟",
+    instruction: "Reinforce positive neuro-association pathways. Champion your micro-wins to fuel confidence.",
+    type: "generic"
+  },
+  {
+    id: "breathing_warmth",
+    title: "The Resonance: 5-Min Calm Breathing",
+    desc: "Engage in a continuous 5-minute deep focus breathing session to lower biological stress markers.",
+    category: "mindset" as TaskCategory,
+    xpReward: 100,
+    icon: "🌬️",
+    instruction: "Breathe calmly. Inhale slow, rhythmic air and exhale longer to activate parasympathetic mastery.",
+    type: "generic"
+  },
+  {
+    id: "daily_reset_bonus",
+    title: "The Daily Reset: 15-Min Pure Offline Detox",
+    desc: "Disconnect to reconnect. Spend 15 minutes fully offline: no smartphone, no desktop, no wireless audio, and no screens.",
+    category: "productivity" as TaskCategory,
+    xpReward: 100,
+    icon: "🔥",
+    instruction: "Sit with an analog notepad, stretch, clean, or meditate. Completely detach from the sensory net.",
+    type: "generic"
   }
 ];
 
@@ -76,8 +347,13 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
 
   // GUI control states
   const [isPersonalQuestsExpanded, setIsPersonalQuestsExpanded] = useState(false);
+  const [isFeedPreviewExpanded, setIsFeedPreviewExpanded] = useState(false);
   const [isChallengeRunning, setIsChallengeRunning] = useState(false);
   const [challengeSuccessMsg, setChallengeSuccessMsg] = useState<string | null>(null);
+  const [showCelebrationModal, setShowCelebrationModal] = useState(false);
+  
+  // Live Community Ticker States No. 6
+  const [tickerIdx, setTickerIdx] = useState(0);
   
   // Interactive Simulator States
   const [breathingCycle, setBreathingCycle] = useState(1);
@@ -89,6 +365,10 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
 
   const [hydrationGulpCount, setHydrationGulpCount] = useState(0);
   const [sunlightNote, setSunlightNote] = useState('');
+  
+  // Generic challenge tracking states
+  const [genericConfirmed, setGenericConfirmed] = useState(false);
+  const [genericNote, setGenericNote] = useState('');
 
   // Refs for timers
   const breathingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -119,6 +399,52 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
     return unsub;
   }, []);
 
+  // Set up community live ticker cycle No. 6
+  useEffect(() => {
+    const totalEvents = getTickerEvents().length;
+    if (totalEvents === 0) return;
+    
+    const tickerTimer = setInterval(() => {
+      setTickerIdx((prev) => (prev + 1) % totalEvents);
+    }, 4500);
+    
+    return () => clearInterval(tickerTimer);
+  }, [posts]);
+
+  // Combined real-time Firestore activity logs & fallback virtual logging No. 6
+  const getTickerEvents = () => {
+    const virtualEvents = [
+      { id: 'v1', text: '🏆 Emma reached Level 5 (+200 XP)', icon: '⭐' },
+      { id: 'v2', text: '🔥 Noah completed a morning mindset challenge', icon: '⚡' },
+      { id: 'v3', text: '🎯 Sophia accomplished Level 2 Stoic breathing protocol', icon: '🧬' },
+      { id: 'v4', text: '💪 Alex checked off a high-intensity physical workout chore', icon: '🏋️' },
+      { id: 'v5', text: '🪙 Liam mastered Financial stewardship lesson 1', icon: '💰' },
+      { id: 'v6', text: '📚 Maya unlocked the productivity focal scholar badge', icon: '🎓' },
+    ];
+    
+    const realEvents = posts.slice(0, 4).map((post, idx) => ({
+      id: `real_${post.id}_${idx}`,
+      text: `🛰️ ${post.authorName}: "${post.content.length > 55 ? post.content.substring(0, 52) + '...' : post.content}"`,
+      icon: '💬'
+    }));
+
+    return [...realEvents, ...virtualEvents];
+  };
+
+  // No. 5 Rotating Motivational Message Generator
+  const getMotivationalGreeting = () => {
+    const messages = [
+      `🔥 You're currently on a ${user.streak}-day active synchrony streak!`,
+      `⚡ Only ${user.requiredXp - user.xp} XP until you unlock Level ${user.level + 1}!`,
+      `🏆 Complete today's mission: "${currentChallenge.title}" for bonus XP coordinates!`,
+      `🚀 Keep your momentum going, ${user.username || 'Traveler'}! Every completed protocol adds up.`,
+      `⭐ You're making elite progress every single day. The coordinates are aligning!`,
+    ];
+    
+    const idx = (dayOfMonth + (todayDateObj.getHours() % 12)) % messages.length;
+    return messages[idx];
+  };
+
   // Breathing simulation phase transitions
   useEffect(() => {
     if (!isChallengeRunning || currentChallenge.type !== 'breathing') {
@@ -131,26 +457,53 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
     setBreathingProgress(0);
 
     let phaseTimer = 0;
-    breathingTimerRef.current = setInterval(() => {
-      phaseTimer += 10; // increment state every 100ms for smooth rendering
-      setBreathingProgress((phaseTimer / 4000) * 100);
+    
+    const phaseDurations: Record<'Inhale' | 'Hold' | 'Exhale', number> = {
+      Inhale: 5000, // Calming 5s inhale
+      Hold: 2000,   // Relaxed 2s brief pause/hold
+      Exhale: 7000  // Calming 7s smooth exhale
+    };
 
-      if (phaseTimer >= 4000) {
+    let currentPhase: 'Inhale' | 'Hold' | 'Exhale' = 'Inhale';
+    let currentLimit = phaseDurations[currentPhase];
+
+    breathingTimerRef.current = setInterval(() => {
+      phaseTimer += 100;
+      const progress = Math.min((phaseTimer / currentLimit) * 100, 100);
+      setBreathingProgress(progress);
+
+      if (phaseTimer >= currentLimit) {
         phaseTimer = 0;
         setBreathingProgress(0);
         
-        setBreathingPhase(prev => {
-          if (prev === 'Inhale') return 'Hold';
-          if (prev === 'Hold') return 'Exhale';
-          
+        if (currentPhase === 'Inhale') {
+          currentPhase = 'Hold';
+          currentLimit = phaseDurations.Hold;
+          setBreathingPhase('Hold');
+        } else if (currentPhase === 'Hold') {
+          currentPhase = 'Exhale';
+          currentLimit = phaseDurations.Exhale;
+          setBreathingPhase('Exhale');
+        } else {
+          // Exhale finished, checking cycle limits (5 cycles)
+          let reachedLimit = false;
           setBreathingCycle(c => {
-            if (c >= 4) {
-              if (breathingTimerRef.current) clearInterval(breathingTimerRef.current);
+            if (c >= 5) {
+              reachedLimit = true;
+              return c;
             }
             return c + 1;
           });
-          return 'Inhale';
-        });
+
+          if (reachedLimit) {
+            if (breathingTimerRef.current) clearInterval(breathingTimerRef.current);
+            return;
+          }
+
+          currentPhase = 'Inhale';
+          currentLimit = phaseDurations.Inhale;
+          setBreathingPhase('Inhale');
+        }
       }
     }, 100);
 
@@ -346,6 +699,7 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
         quickPostContent.trim(),
         null
       );
+      trackEvent('create_post', { container: 'dashboard', character: user.username });
       setQuickPostContent('');
     } catch (err: any) {
       console.error("[Dashboard Quick Post ERROR]", err);
@@ -358,6 +712,7 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
   const handleCompleteTask = async (id: string) => {
     try {
       await stateService.completeTask(user.id, id);
+      trackEvent('complete_task', { task_id: id });
     } catch (err) {
       console.error(err);
     }
@@ -366,6 +721,7 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
   const handleDeleteTask = async (id: string) => {
     try {
       await stateService.deleteTask(user.id, id);
+      trackEvent('delete_task', { task_id: id });
     } catch (err) {
       console.error(err);
     }
@@ -394,8 +750,15 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
         currentChallenge.title
       );
       
+      trackEvent('complete_challenge', { 
+        challenge_id: currentChallenge.id, 
+        challenge_title: currentChallenge.title, 
+        xp_reward: currentChallenge.xpReward 
+      });
+      
       setChallengeSuccessMsg(`You have successfully synchronized today's challenge: "${currentChallenge.title}" (+${currentChallenge.xpReward} XP)!`);
       setIsChallengeRunning(false);
+      setShowCelebrationModal(true);
       
       // reset states
       setHydrationGulpCount(0);
@@ -466,11 +829,18 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
           Exhale: 'scale-[0.80]'
         };
         
+        // Synced transition lengths (in ms)
+        const phaseTransDurations = {
+          Inhale: '5000ms',
+          Hold: '2000ms',
+          Exhale: '7000ms'
+        };
+        
         return (
           <div className="flex flex-col items-center py-6 text-center">
             <span className="font-mono text-[10px] text-indigo-400 uppercase tracking-widest mb-1 block">STREAK INITIATION CHAMBER</span>
-            <span className="font-display font-medium text-slate-300 text-sm mb-5">STOIC BREATHING COUNTER: Cycle {breathingCycle} of 4</span>
-
+            <span className="font-display font-medium text-slate-300 text-sm mb-5">CALMING BREATHING COUNTER: Cycle {breathingCycle} of 5</span>
+ 
             {/* Glowing Concentric Target Breathing Sphere */}
             <div className="w-48 h-48 flex items-center justify-center relative mb-6">
               {/* Pulsing Outer Rings */}
@@ -479,17 +849,18 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
               
               {/* Main Breathing Bubble Component */}
               <div 
-                className={`w-32 h-32 rounded-full bg-gradient-to-tr ${phaseColors[breathingPhase]} flex flex-col items-center justify-center transition-all duration-[4000ms] ease-in-out select-none transform ${sizeClasses[breathingPhase]}`}
+                className={`w-32 h-32 rounded-full bg-gradient-to-tr ${phaseColors[breathingPhase]} flex flex-col items-center justify-center transition-all ease-in-out select-none transform ${sizeClasses[breathingPhase]}`}
+                style={{ transitionDuration: phaseTransDurations[breathingPhase] }}
               >
                 <span className="font-display font-black tracking-widest text-white uppercase text-sm drop-shadow-md animate-pulse">
                   {breathingPhase}
                 </span>
-                <span className="text-[9px] font-mono text-white/80 mt-1 drop-shadow-md">
-                  {breathingPhase === 'Inhale' ? 'Exhale fully first' : breathingPhase === 'Hold' ? 'Hold solar lock' : 'Release tension'}
+                <span className="text-[9px] font-mono text-white/80 mt-1 drop-shadow-md px-2 text-center">
+                  {breathingPhase === 'Inhale' ? 'Slowly fill your lungs 🌬️' : breathingPhase === 'Hold' ? 'Suspend gently 🧘' : 'Gentle, soothing release 🌊'}
                 </span>
               </div>
             </div>
-
+ 
             {/* Stage Bar progress */}
             <div className="w-full max-w-xs mt-3 h-1 bg-black/60 rounded-full overflow-hidden border border-white/5">
               <div 
@@ -497,7 +868,7 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
                 style={{ width: `${breathingProgress}%` }}
               ></div>
             </div>
-
+ 
             <div className="mt-8 flex gap-3">
               <button
                 onClick={() => setIsChallengeRunning(false)}
@@ -507,14 +878,14 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
               </button>
               <button
                 onClick={handleSealChallenge}
-                disabled={breathingCycle < 4 || isSubmitting}
+                disabled={breathingCycle < 5 || isSubmitting}
                 className="px-6 py-2 bg-gradient-to-r from-emerald-500 to-indigo-600 hover:opacity-95 text-white font-mono text-[11px] uppercase font-bold tracking-widest clip-cyber shadow-[0_0_15px_rgba(16,185,129,0.35)] transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer flex items-center gap-1.5"
               >
                 <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-                <span>{breathingCycle < 4 ? 'Complete Cycles to Seal' : 'TRANSMIT & SEAL PROTOCOL'}</span>
+                <span>{breathingCycle < 5 ? 'Complete Cycles to Seal' : 'TRANSMIT & SEAL PROTOCOL'}</span>
               </button>
             </div>
-            {breathingCycle < 4 && (
+            {breathingCycle < 5 && (
               <button 
                 onClick={handleSealChallenge} 
                 className="mt-3.5 text-[9px] font-mono text-slate-500 hover:text-indigo-400 transition-all underline shrink-0 outline-none"
@@ -700,44 +1071,251 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
         );
 
       default:
-        return null;
+        return (
+          <div className="py-4 flex flex-col items-center">
+            {/* Visual Header */}
+            <div className="w-14 h-14 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-2xl mb-4 animate-bounce">
+              {currentChallenge.icon}
+            </div>
+            
+            <p className="text-xs text-slate-300 text-center max-w-md leading-relaxed font-sans mb-5 px-3">
+              {currentChallenge.instruction || "Anchor your commitment to raw, self-directed development. Perform this routine to build robust discipline nodes and earn rewards."}
+            </p>
+
+            {/* Reflection Note Pad */}
+            <div className="w-full max-w-md space-y-4 px-3">
+              <div className="bg-black/25 rounded-xl border border-white/5 p-4 flex items-center gap-3">
+                <input 
+                  type="checkbox" 
+                  id="generic-task-confirm"
+                  checked={genericConfirmed}
+                  onChange={(e) => setGenericConfirmed(e.target.checked)}
+                  className="w-5 h-5 rounded border-slate-700 bg-black text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                />
+                <label htmlFor="generic-task-confirm" className="text-xs font-mono text-slate-350 uppercase tracking-wider cursor-pointer select-none">
+                  Check to confirm protocol complete (+{currentChallenge.xpReward} XP pending)
+                </label>
+              </div>
+
+              <textarea
+                value={genericNote}
+                onChange={(e) => setGenericNote(e.target.value)}
+                placeholder="Log your thoughts, habits tracker notes, or any personal evolution insights (optional)..."
+                className="w-full h-20 px-3.5 py-2.5 rounded-lg bg-black/60 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:focus:border-indigo-500 outline-none resize-none font-sans placeholder-slate-600 shadow-inner"
+              />
+
+              <div className="flex justify-end gap-3.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsChallengeRunning(false);
+                    setGenericConfirmed(false);
+                  }}
+                  className="px-4 py-2 font-mono text-[10px] uppercase tracking-wider rounded border border-white/10 hover:border-white/20 text-slate-500 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    handleSealChallenge();
+                    setGenericConfirmed(false);
+                  }}
+                  disabled={!genericConfirmed || isSubmitting}
+                  className="px-6 py-2 bg-gradient-to-r from-emerald-500 to-indigo-600 hover:opacity-95 text-white font-mono text-[11px] uppercase font-bold tracking-widest clip-cyber shadow-[0_0_15px_rgba(16,185,129,0.35)] transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                  <span>Transmit & Seal Protocol</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
     }
   };
 
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      
-      {/* COLUMN LEFT: CORE PLAYER RPG METER & CHALLENGE HERO HUB */}
-      <div className="lg:col-span-8 flex flex-col gap-6">
+  const getNextLevelUnlockText = () => {
+    const nextLevel = user.level + 1;
+    if (nextLevel <= 3) return `"Scholar Apprentice" Portrait package, and unlocks the Finance Accumulator Skill Tree!`;
+    if (nextLevel <= 5) return `"Adept Stoic" Achievement Badge, and unlocks the stoic breathing guidance loop level 2!`;
+    if (nextLevel <= 8) return `"Master Guardian" Companion Profile overlay, and unlocks exclusive custom portraits package (+350 XP bonus!)`;
+    return `"Eternal Archon" Legendary status title, and locks in elite tier rewards!`;
+  };
 
-        {/* 1. MASTER DAILY SPOTLIGHT MISSION HERO CARD */}
-        <div className="p-6 rounded-2xl bg-gradient-to-br from-[#101026] via-[#08081a] to-[#04040e] border border-white/10 shadow-[0_15px_35px_rgba(0,0,0,0.6)] relative overflow-hidden group">
-          {/* Futuristic corner frame design elements */}
-          <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-indigo-500/40 rounded-tl-lg"></div>
-          <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-indigo-500/40 rounded-tr-lg"></div>
-          <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-indigo-500/40 rounded-bl-lg"></div>
-          <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-indigo-500/40 rounded-br-lg"></div>
-          
-          <div className="absolute top-[-20%] right-[-10%] w-[320px] h-[320px] bg-purple-500/10 blur-[80px] rounded-full pointer-events-none group-hover:bg-purple-500/15 transition-all"></div>
-          
-          {/* Category Tag Header */}
-          <div className="flex items-center justify-between gap-4 border-b border-white/5 pb-4 mb-5">
-            <div className="flex items-center gap-2">
-              <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/25 text-indigo-400 font-bold text-lg select-none">
-                {currentChallenge.icon}
-              </span>
-              <div>
-                <span className="font-mono text-[9px] text-indigo-400 block uppercase tracking-widest font-black">ACTIVE CHRONOS CHALLENGE</span>
-                <span className="text-[10px] text-slate-400 font-mono uppercase">EPIC SINGLE PRIMARY DIRECTIVE</span>
+  return (
+    <div className="w-full flex flex-col gap-6 items-center">
+      
+      {/* CELEBRATION MODAL OVERLAY */}
+      <AnimatePresence>
+        {showCelebrationModal && (
+          <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.9, y: 30, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 30, opacity: 0 }}
+              className="max-w-md w-full bg-gradient-to-b from-[#1b193d] to-[#04020a] border-2 border-indigo-500/50 rounded-2xl shadow-[0_0_50px_rgba(99,102,241,0.4)] p-6 text-center relative overflow-hidden"
+            >
+              {/* Confetti sparkle animations */}
+              <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-violet-400 via-indigo-500 to-cyan-500"></div>
+              
+              {/* Confetti simulation elements (emojis cascade) */}
+              <div className="absolute inset-0 pointer-events-none opacity-20">
+                <div className="absolute top-1/4 left-1/4 animate-bounce text-2xl">🔥</div>
+                <div className="absolute top-1/3 right-1/4 animate-ping text-xl">⚡</div>
+                <div className="absolute top-2/3 left-1/3 animate-pulse text-2xl">⭐</div>
+                <div className="absolute top-1/2 right-1/3 animate-bounce text-xl">✨</div>
+                <div className="absolute top-4/5 left-1/2 text-2xl">👑</div>
               </div>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full border border-pink-500/20 bg-pink-950/15 text-[10px] font-mono text-purple-400 uppercase font-extrabold animate-pulse">
-                +{currentChallenge.xpReward} XP REWARD
+
+              <div className="w-20 h-20 bg-gradient-to-tr from-amber-400 to-yellow-300 rounded-full flex items-center justify-center mx-auto mb-5 shadow-[0_0_25px_rgba(234,179,8,0.4)] select-none">
+                <Trophy className="w-10 h-10 text-slate-950 stroke-[2.5] animate-bounce" />
+              </div>
+
+              <span className="font-mono text-[10px] text-amber-400 uppercase tracking-widest font-black block mb-1">
+                MISSION COMPLETED • SECURED SUCCESS
               </span>
-              <span className="text-xs text-orange-400 flex items-center gap-0.5 font-mono select-none">
-                🔥 SOLID STREAK UP
+              <h2 className="font-display font-black text-2xl text-white uppercase tracking-wider mb-3 leading-tight text-glow-indigo">
+                CONGRATULATIONS!
+              </h2>
+              
+              <div className="p-4 bg-black/55 border border-white/5 rounded-xl text-left space-y-2 mb-6">
+                <div className="flex justify-between items-center text-xs font-mono">
+                  <span className="text-slate-450">MISSION DEPOSIT:</span>
+                  <span className="text-emerald-400 font-bold">+{currentChallenge.xpReward} XP</span>
+                </div>
+                <div className="flex justify-between items-center text-xs font-mono">
+                  <span className="text-slate-450">STREAK MULTIPLIER:</span>
+                  <span className="text-orange-400 font-bold">{user.streak} DAYS ACTIVE</span>
+                </div>
+                <div className="h-[1px] bg-white/5 my-1" />
+                <div className="text-[11px] text-slate-300 font-sans leading-relaxed text-center">
+                  "Awesome progress! Today's chronological coordinates have been verified. Keep up the daily flow to preserve multi-day score modifiers."
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowCelebrationModal(false)}
+                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-indigo-600 hover:from-emerald-400 hover:to-indigo-500 text-white font-display font-bold uppercase text-xs tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.4)] cursor-pointer outline-none border-none"
+              >
+                Claim XP & Hold the Flame
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* No. 6 LIVE COMMUNITY INTERACTIVE TICKER */}
+      <div className="w-full max-w-4xl bg-black/50 border border-indigo-500/15 rounded-2xl px-4 py-2 flex items-center overflow-hidden shadow-inner gap-3">
+        <div className="flex items-center gap-1.5 shrink-0 px-2 py-0.5 rounded bg-indigo-500/15 border border-indigo-400/30 text-indigo-300 text-[9px] font-mono uppercase font-black tracking-widest">
+          <Activity className="w-3 h-3 text-indigo-400 animate-pulse" />
+          <span>Vanguard Live Radar</span>
+        </div>
+        <div className="flex-1 overflow-hidden relative h-5 flex items-center">
+          <AnimatePresence mode="wait">
+            {getTickerEvents().length > 0 && (
+              <motion.div
+                key={tickerIdx}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.45 }}
+                className="text-xs text-slate-300 font-sans font-medium flex items-center gap-2"
+              >
+                <span>{getTickerEvents()[tickerIdx]?.icon}</span>
+                <span className="truncate">{getTickerEvents()[tickerIdx]?.text}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+        <div className="shrink-0 flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+          <span className="font-mono text-[8px] text-emerald-400 uppercase tracking-widest font-bold">ONLINE</span>
+        </div>
+      </div>
+
+      {/* ==========================================
+          ABOVE THE FOLD: MAIN DUOLINGO PRIMARY HUB
+          ========================================== */}
+      <div className="w-full max-w-4xl bg-gradient-to-b from-[#0a0921] to-[#04030d] rounded-3xl border border-indigo-500/25 p-6 md:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] relative overflow-hidden">
+        
+        {/* Subtle geometric glowing grid behind above the fold stats */}
+        <div className="absolute top-0 right-0 w-[240px] h-[240px] bg-indigo-500/10 blur-[90px] rounded-full pointer-events-none"></div>
+        <div className="absolute bottom-0 left-0 w-[240px] h-[240px] bg-rose-500/5 blur-[90px] rounded-full pointer-events-none"></div>
+
+        {/* No. 5 MOTIVATIONAL DYNAMIC DECRYPT greeter */}
+        <div className="mb-5 p-4 rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-black/35 border border-indigo-500/15 flex items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <span className="block font-mono text-[8px] text-indigo-400 tracking-wider uppercase font-black mb-1">MOTIVATIONAL DECRYPT MATRIX</span>
+            <p className="font-sans text-xs md:text-sm text-slate-100 font-medium leading-relaxed italic truncate">
+              {getMotivationalGreeting()}
+            </p>
+          </div>
+          <div className="shrink-0 w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center text-indigo-300 font-bold text-sm">
+            ✦
+          </div>
+        </div>
+
+        {/* 1. TOP HUD VITAL METRICS BLOCK */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center border-b border-indigo-500/10 pb-6 mb-6">
+          
+          {/* Streak Indicator Widget */}
+          <div className="flex items-center gap-3.5 bg-black/40 border border-orange-500/20 p-4 rounded-2xl shadow-[0_4px_15px_rgba(249,115,22,0.05)]">
+            <div className="w-12 h-12 bg-orange-500/10 border border-orange-500/30 rounded-xl flex items-center justify-center">
+              <Flame className="w-7 h-7 text-orange-400 animate-pulse" />
+            </div>
+            <div>
+              <span className="block font-mono text-[9px] text-slate-500 uppercase tracking-widest">CURRENT FLAME</span>
+              <span className="font-display font-black text-xl text-orange-400 uppercase tracking-wide">
+                {user.streak} Days Active
+              </span>
+            </div>
+          </div>
+
+          {/* Level representation Indicator */}
+          <div className="flex items-center gap-3.5 bg-black/40 border border-indigo-500/20 p-4 rounded-2xl shadow-[0_4px_15px_rgba(99,102,241,0.05)]">
+            <div className="w-12 h-12 bg-indigo-500/10 border border-indigo-500/30 rounded-xl flex items-center justify-center">
+              <Award className="w-7 h-7 text-indigo-400" />
+            </div>
+            <div>
+              <span className="block font-mono text-[9px] text-slate-500 uppercase tracking-widest">VANGUARD RANK</span>
+              <span className="font-display font-black text-lg text-white uppercase tracking-wide truncate block max-w-[180px]">
+                Level {user.level} Adept
+              </span>
+            </div>
+          </div>
+
+          {/* XP Progress Bar Gauge */}
+          <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex flex-col justify-center">
+            <div className="flex justify-between items-center text-[10px] font-mono text-slate-450 uppercase mb-2">
+              <span>XP TRACKER</span>
+              <span className="text-cyan-400 font-bold">{user.xp} / {user.requiredXp} XP</span>
+            </div>
+            <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-white/5 relative">
+              <div 
+                className="h-full bg-gradient-to-r from-cyan-400 via-indigo-500 to-purple-600 transition-all duration-700 ease-out shadow-[0_0_8px_rgba(99,102,241,0.5)]"
+                style={{ width: `${progressPercent}%` }}
+              ></div>
+            </div>
+            <span className="text-[8px] text-slate-500 font-mono tracking-wider mt-1.5 uppercase text-right">
+              {Math.round(progressPercent)}% toward Level {user.level + 1}
+            </span>
+          </div>
+
+        </div>
+
+        {/* 2. CHRONO TODAY'S MISSION CARD (LARGE) */}
+        <div className="bg-gradient-to-br from-[#121132] via-[#08071e] to-[#030209] rounded-2xl border-2 border-indigo-500/35 p-6 shadow-[0_12px_40px_rgba(0,0,0,0.6)] relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 blur-[40px] pointer-events-none"></div>
+
+          {/* Today badge header */}
+          <div className="flex justify-between items-center border-b border-white/5 pb-4 mb-4 gap-4 flex-wrap">
+            <span className="px-3 py-1 bg-indigo-500/10 border border-indigo-500/30 rounded-lg font-mono text-[10px] text-indigo-300 uppercase tracking-widest font-black flex items-center gap-1.5">
+              <span>{currentChallenge.icon}</span>
+              <span>DAILY CAMPAIGN MISSION</span>
+            </span>
+            <div className="flex items-center gap-2 font-mono text-xs text-orange-400 font-bold">
+              <span>🔥 MULTIPLIER {(1.0 + user.streak * 0.05).toFixed(2)}x LOCK</span>
+              <span className="px-2 py-0.5 rounded bg-pink-500/10 text-pink-400 border border-pink-500/20 text-[9px]">
+                +{currentChallenge.xpReward} XP
               </span>
             </div>
           </div>
@@ -745,24 +1323,27 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
           <AnimatePresence mode="wait">
             {!isChallengeCompletedToday && !isChallengeRunning && (
               <motion.div 
-                key="spotlight-front"
+                key="front-layout"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-4"
               >
                 <div className="space-y-2">
-                  <h1 className="font-display font-black text-2xl tracking-wider text-white uppercase text-glow-indigo">
+                  <h1 className="font-display font-black text-2xl md:text-3xl tracking-wider text-white uppercase text-glow-indigo">
                     {currentChallenge.title}
                   </h1>
-                  <p className="text-xs text-slate-300 font-sans leading-relaxed tracking-wide">
+                  <p className="text-xs md:text-sm text-slate-300 leading-relaxed font-sans max-w-2xl">
                     {currentChallenge.desc}
                   </p>
                 </div>
 
-                <div className="p-4 bg-slate-950/40 rounded-xl border border-slate-900 leading-relaxed font-sans text-[11px] text-slate-400">
-                  <span className="font-mono text-[9px] text-slate-500 uppercase block mb-1">CO-CONSTRUCTION MANDATE:</span>
-                  Unlock continuous character level-ups and maintain streak counters. Completion initiates an automated real-time dispatch to the community feed loop to establish social accountability and prevent FOMO.
+                <div className="p-4 bg-slate-950/50 rounded-xl border border-white/5 leading-relaxed font-sans text-xs text-slate-400 flex items-start gap-2.5">
+                  <span className="text-lg">🎯</span>
+                  <div>
+                    <span className="font-mono text-[9px] text-slate-500 uppercase block font-bold mb-0.5">ESTABLISH CHRONO VELOCITY:</span>
+                    Completing this daily synchronization anchors your life path index, feeds the collective, and advances your skill tree stats. Start the active calibration lock now.
+                  </div>
                 </div>
 
                 <div className="pt-2">
@@ -772,9 +1353,9 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
                       setIsChallengeRunning(true);
                     }}
                     id="trigger-spotlight-challenge-btn"
-                    className="w-full relative py-3.5 bg-gradient-to-r from-indigo-500 via-purple-600 to-indigo-700 hover:opacity-95 text-white font-display font-bold uppercase text-xs tracking-widest clip-cyber shadow-[0_0_24px_rgba(99,102,241,0.45)] hover:shadow-[0_0_35px_rgba(139,92,246,0.65)] hover:scale-[1.01] transition-all cursor-pointer block text-center"
+                    className="w-full relative py-4 bg-gradient-to-r from-emerald-500 via-indigo-600 to-purple-600 hover:opacity-95 text-white font-display font-bold uppercase text-xs md:text-sm tracking-widest rounded-xl shadow-[0_0_24px_rgba(99,102,241,0.45)] hover:shadow-[0_0_35px_rgba(139,92,246,0.65)] hover:scale-[1.01] transition-all cursor-pointer block text-center border-none"
                   >
-                    🚀 START TODAY'S CHALLENGE
+                    🚀 START TODAY'S MISSION
                   </button>
                 </div>
               </motion.div>
@@ -782,30 +1363,30 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
 
             {!isChallengeCompletedToday && isChallengeRunning && (
               <motion.div 
-                key="spotlight-active"
+                key="active-layout"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="p-4 rounded-xl border border-slate-900 bg-slate-950/25 relative"
+                className="space-y-4"
               >
-                {/* Closing cross */}
-                <button 
-                  onClick={() => setIsChallengeRunning(false)}
-                  className="absolute top-2.5 right-2.5 p-1 rounded-md text-slate-500 hover:text-white hover:bg-white/5 transition-all outline-none border-none shrink-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="p-4 rounded-xl border border-white/5 bg-black/45 relative">
+                  <button 
+                    onClick={() => setIsChallengeRunning(false)}
+                    className="absolute top-3 right-3 p-1 rounded-md text-slate-500 hover:text-white hover:bg-white/5 transition-all outline-none border-none cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
 
-                <h3 className="font-mono text-[9px] text-indigo-400 uppercase tracking-widest mb-1 font-bold">ACTIVE SIMULATED INTERACTIVE STAGE</h3>
-                <h4 className="font-display font-medium text-slate-200 text-sm mb-4 uppercase">{currentChallenge.title}</h4>
-                
-                {renderInteractiveChallengeSimNode()}
+                  <h3 className="font-mono text-[9px] text-indigo-400 uppercase tracking-widest mb-1 font-bold">ACTIVE SIMULATED INTERACTIVE STAGE</h3>
+                  <h4 className="font-display font-medium text-slate-200 text-sm mb-4 uppercase">{currentChallenge.title}</h4>
+                  
+                  {renderInteractiveChallengeSimNode()}
+                </div>
               </motion.div>
             )}
 
             {isChallengeCompletedToday && (
               <motion.div 
-                key="spotlight-completed"
+                key="completed-layout"
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="py-6 flex flex-col items-center text-center space-y-4"
@@ -817,141 +1398,131 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
                 <div className="space-y-1">
                   <span className="font-mono text-[10px] text-emerald-400 uppercase tracking-widest font-black block">DAILY PROTOCOL ANCHORED</span>
                   <h3 className="font-display font-black text-xl text-white uppercase tracking-wider">
-                    CHALLENGE MASTERED TODAY!
+                    MISSION MASTERED TODAY!
                   </h3>
                   <p className="text-xs text-slate-400 max-w-sm leading-normal">
-                    Today's chronological mission has been submitted and saved in your persistent record profiles. +100 XP gained and streak counter updated successfully.
+                    Nice! Today's challenge is completed. +100 XP gained and streak counter updated. Your progress was dispatched to the feed matrix.
                   </p>
                 </div>
 
-                <div className="px-5 py-2 rounded bg-emerald-950/20 border border-emerald-500/20 font-mono text-[10px] text-emerald-300">
-                  ⚡ WEEKLY RANK LEAD LEVEL CONFIGURED • NEXT CHALLENGE REFRESHES TOMORROW
+                <div className="px-5 py-2 rounded bg-emerald-950/20 border border-emerald-500/20 font-mono text-[9px] text-emerald-300">
+                  ⚡ WEEKLY RANK PROGRESS SECURED • LOG BACK IN TOMORROW FOR THE NEXT STAGE
                 </div>
-
-                <p className="text-[10px] text-indigo-400 font-mono italic">
-                  👥 47 other guardians synchronized their biological clock today! Maintain the loop to preserve momentum.
-                </p>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Toast / Challenge feedback dialog */}
+          {/* Toast feedback dialog */}
           {challengeSuccessMsg && (
-            <div className="mt-4 p-3 rounded-lg bg-indigo-950/30 border border-indigo-500/30 text-[11px] font-sans text-indigo-300 flex justify-between items-center animate-fade-in">
+            <div className="mt-4 p-3 rounded-lg bg-indigo-950/30 border border-indigo-500/30 text-[11px] font-sans text-indigo-300 flex justify-between items-center animate-fade-in gap-3">
               <span>🎉 {challengeSuccessMsg}</span>
-              <button onClick={() => setChallengeSuccessMsg(null)} className="text-indigo-400 hover:text-white font-mono font-bold text-[9px] uppercase pl-2 font-mono">
+              <button onClick={() => setChallengeSuccessMsg(null)} className="text-indigo-400 hover:text-white font-mono font-bold text-[9px] uppercase pl-2 font-mono bg-transparent border-none cursor-pointer">
                 Dismiss
               </button>
             </div>
           )}
         </div>
 
-        {/* 2. CHRONICLE COMMUNITY FEED LOG SHORTCUT PREVIEW */}
-        <div className="p-5 rounded-2xl bg-white/5 border border-white/10 flex flex-col gap-4">
-          <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="w-4.5 h-4.5 text-purple-400" />
-              <h3 className="font-display font-semibold text-sm tracking-wide text-slate-250 uppercase">
-                ACTIVE VANGUARD LOG CONSOLE
-              </h3>
+      </div>
+
+      {/* ==============================================
+          RETENTION FORECAST & GAMIFICATION FUTURES (REWARD PREVIEW)
+          ============================================== */}
+      <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        {/* Tomorrow's Reward Preview Card */}
+        <div className="p-5 rounded-2xl bg-[#0b0417]/80 border border-purple-500/20 flex flex-col justify-between hover:border-purple-500/35 transition-all">
+          <div>
+            <div className="flex items-center gap-2 text-purple-400 font-display font-black text-[10px] uppercase tracking-wider mb-2">
+              <Sparkles className="w-4 h-4 animate-spin-slow text-purple-400" />
+              <span>Tomorrow's Reward Forecast</span>
             </div>
-            {onNavigate && (
-              <button 
-                onClick={() => onNavigate('community', 'feed')}
-                className="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 font-bold uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer outline-none bg-none border-none p-0"
-              >
-                Expand feed chronicles <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            )}
+            <h4 className="font-display font-bold text-xs uppercase text-slate-200 mb-1">
+              "Solar Flare Aura" Preview
+            </h4>
+            <p className="text-[11px] text-slate-400 font-sans leading-normal">
+              Maintain your daily calibration loop tomorrow tool to unpack the exclusive "Solar Flare" profile aura animation and a +150 bonus XP booster loot container!
+            </p>
           </div>
-
-          {/* Quick Post Box first */}
-          <form onSubmit={handleQuickPost} className="p-3 bg-black/45 rounded-xl border border-slate-900/60 flex gap-2">
-            <input 
-              type="text"
-              required
-              value={quickPostContent}
-              onChange={(e) => setQuickPostContent(e.target.value)}
-              placeholder="Deploy a quick transmission directly to feed..."
-              className="flex-1 px-3 py-2 rounded-lg bg-black/40 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors outline-none font-sans text-xs"
-              disabled={isPosting}
-            />
-            <button
-              type="submit"
-              disabled={isPosting || !quickPostContent.trim()}
-              className="px-4 rounded-lg h-[32px] bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-mono text-[10px] uppercase font-bold tracking-wider transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer flex items-center gap-1.5"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>{isPosting ? 'DEPLOY...' : 'POST'}</span>
-            </button>
-          </form>
-
-          {quickPostError && (
-            <span className="text-[10px] font-mono text-pink-400 -mt-2 px-1">
-              ⚠️ {quickPostError}
-            </span>
-          )}
-
-          {/* Preview list */}
-          <div className="space-y-3">
-            {isFeedLoading ? (
-              <div className="text-center py-4 text-xs font-mono text-slate-500 animate-pulse">
-                SYNCING BROADCAST CORE...
-              </div>
-            ) : posts.length === 0 ? (
-              <div className="text-center py-4 text-[10px] font-mono text-slate-600">
-                TRANS-SPACE QUIET. NO SHOUTS SIGNALED YET.
-              </div>
-            ) : (
-              posts.slice(0, 2).map((post) => (
-                <div key={post.id} className="p-3.5 bg-white/[0.02] border border-white/5 rounded-xl flex items-start gap-3 hover:bg-white/[0.04] transition-all">
-                  <div className="w-8 h-8 rounded-lg overflow-hidden border border-slate-800 shrink-0 mt-0.5">
-                    <AvatarImage 
-                      src={post.authorAvatar} 
-                      alt={post.authorName} 
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-display font-bold text-[11px] text-slate-200">{post.authorName}</span>
-                      <span className="text-[8px] font-mono text-slate-550">
-                        {new Date(post.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-350 mt-1 line-clamp-2 leading-relaxed font-sans">
-                      {post.content}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
+          <div className="mt-3.5 pt-2 border-t border-white/5 flex items-center justify-between text-[8.5px] font-mono uppercase text-purple-400">
+            <span>PRESERVE STREAK</span>
+            <span>DAY {user.streak + 1} UNLOCK</span>
           </div>
         </div>
 
-        {/* 3. OPTIONAL COLLAPSIBLE HABITS LEDGER (REMOVES INITIAL CHOICE OVERLOAD) */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl overflow-hidden transition-all">
+        {/* Next Streak Reward Card */}
+        <div className="p-5 rounded-2xl bg-[#1a0a10]/80 border border-rose-500/25 flex flex-col justify-between hover:border-rose-500/35 transition-all">
+          <div>
+            <div className="flex items-center gap-2 text-rose-400 font-display font-black text-[10px] uppercase tracking-wider mb-2">
+              <Flame className="w-4 h-4 text-orange-400" />
+              <span>Streak Milestone</span>
+            </div>
+            <h4 className="font-display font-bold text-xs uppercase text-slate-200 mb-1">
+              Consistency Catalyst (Day 7)
+            </h4>
+            <p className="text-[11px] text-slate-400 font-sans leading-normal">
+              Secure a solid 7-Day active coordinate sequence to forge the magnificent "Consistency Catalyst" Champion Badge with permanent +5% experience multiplier!
+            </p>
+          </div>
+          <div className="mt-3.5 pt-2 border-t border-white/5 flex items-center justify-between text-[8.5px] font-mono uppercase text-orange-400">
+            <span>CURRENT FLAME: {user.streak} DAYS</span>
+            <span>{Math.max(1, 7 - user.streak)} DAYS REMAIN</span>
+          </div>
+        </div>
+
+        {/* Next Level Unlock Card */}
+        <div className="p-5 rounded-2xl bg-[#030e16]/80 border border-cyan-500/20 flex flex-col justify-between hover:border-cyan-500/35 transition-all">
+          <div>
+            <div className="flex items-center gap-2 text-cyan-400 font-display font-black text-[10px] uppercase tracking-wider mb-2">
+              <Trophy className="w-4 h-4 text-cyan-400" />
+              <span>Next Level Unlock (Lvl {user.level + 1})</span>
+            </div>
+            <h4 className="font-display font-bold text-xs uppercase text-slate-200 mb-1">
+              Ranks & Customization
+            </h4>
+            <p className="text-[11px] text-slate-400 font-sans leading-normal">
+              Reaching level {user.level + 1} unlocks: {getNextLevelUnlockText()} Take action to deposits XP points towards this target profile lock.
+            </p>
+          </div>
+          <div className="mt-3.5 pt-2 border-t border-white/5 flex items-center justify-between text-[8.5px] font-mono uppercase text-cyan-400">
+            <span>LEVEL {user.level} ACTIVE</span>
+            <span>{user.requiredXp - user.xp} XP REMAINING</span>
+          </div>
+        </div>
+
+      </div>
+
+      {/* ========================================================
+          BELOW THE FOLD: SECONDARY FEATURES ENCAPSULATED / TIDIED
+          ======================================================== */}
+      <div className="w-full max-w-4xl space-y-4">
+        
+        {/* COLLAPSIBLE SYSTEM 1: STANDARD CHORES LEDGER */}
+        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl overflow-hidden transition-all shadow-md">
           <button
             onClick={() => setIsPersonalQuestsExpanded(!isPersonalQuestsExpanded)}
             id="personal-ledger-toggle-btn"
-            className="w-full p-5 flex items-center justify-between hover:bg-white/[0.02] transition-colors outline-none cursor-pointer"
+            className="w-full p-4.5 flex items-center justify-between hover:bg-white/[0.02] transition-colors outline-none cursor-pointer border-none bg-transparent"
           >
-            <div className="flex items-center gap-2 text-left">
-              <CheckSquare className="w-4.5 h-4.5 text-indigo-400" />
+            <div className="flex items-center gap-3 text-left">
+              <CheckSquare className="w-5 h-5 text-indigo-400" />
               <div>
-                <h4 className="font-display font-bold text-xs uppercase tracking-wider text-slate-200">
-                  STANDARD HABITS REGISTRY & CHORES Ledger ({tasks.length})
+                <span className="font-display font-black text-[10px] text-indigo-400 tracking-widest block uppercase">PERSONAL STAT CHORES</span>
+                <h4 className="font-display font-bold text-sm tracking-wide text-white uppercase mt-0.5">
+                  Standard Habits & Chores Ledger ({tasks.length})
                 </h4>
-                <p className="text-[10px] text-slate-400 font-sans mt-0.5">
-                  Expand to record personal tasks, recurring sub-objectives, and habit track coordinates.
-                </p>
               </div>
             </div>
-            {isPersonalQuestsExpanded ? (
-              <ChevronUp className="w-4 h-4 text-slate-400" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-slate-400 animate-pulse" />
-            )}
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[9px] uppercase bg-black/45 hover:bg-black/65 text-slate-400 px-2 py-1 rounded">
+                {isPersonalQuestsExpanded ? 'CONCEAL LEDGER' : 'EXPAND LEDGER'}
+              </span>
+              {isPersonalQuestsExpanded ? (
+                <ChevronUp className="w-4 h-4 text-slate-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-slate-400" />
+              )}
+            </div>
           </button>
 
           {isPersonalQuestsExpanded && (
@@ -969,13 +1540,13 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
                       value={taskTitle}
                       onChange={(e) => setTaskTitle(e.target.value)}
                       placeholder="E.g., Complete 30-min coding workout..."
-                      className="md:col-span-2 px-3.5 py-2.5 rounded-lg bg-black/60 border border-slate-800 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-400 transition-colors outline-none font-sans"
+                      className="md:col-span-2 px-3.5 py-2.5 rounded-lg bg-black/60 border border-slate-800 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-400 transition-colors outline-none font-sans outline-none"
                     />
 
                     <select
                       value={taskCategory}
                       onChange={(e) => setTaskCategory(e.target.value as TaskCategory)}
-                      className="px-3 py-2.5 rounded-lg bg-black/60 border border-slate-800 text-xs text-slate-300 focus:outline-none focus:outline-none outline-none font-sans"
+                      className="px-3 py-2.5 rounded-lg bg-black/60 border border-slate-800 text-xs text-slate-300 focus:outline-none outline-none font-sans"
                     >
                       <option value="productivity">🚀 Productivity</option>
                       <option value="fitness">💪 Fitness</option>
@@ -989,15 +1560,15 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
                     <div className="md:col-span-2">
                       <span className="block text-[9px] text-slate-500 font-mono mb-1 uppercase">DIFFICULTY COGNITIVE RATIO</span>
-                      <div className="flex gap-1.5">
+                      <div className="flex gap-1.5 align-middle">
                         {(['easy', 'medium', 'hard', 'epic'] as TaskDifficulty[]).map((diff) => (
                           <button
                             key={diff}
                             type="button"
                             onClick={() => setTaskDifficulty(diff)}
-                            className={`flex-1 py-1.5 text-[10px] font-mono uppercase rounded border transition-all ${
+                            className={`flex-1 py-1.5 text-[10px] font-mono uppercase rounded border transition-all cursor-pointer ${
                               taskDifficulty === diff 
-                                ? 'border-indigo-500 bg-indigo-500/15 text-indigo-450 font-bold' 
+                                ? 'border-indigo-500 bg-indigo-500/15 text-indigo-300 font-bold' 
                                 : 'border-white/5 bg-black/20 text-slate-400 hover:border-white/10'
                             }`}
                           >
@@ -1024,7 +1595,7 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
                       <button
                         type="submit"
                         disabled={isSubmitting || !taskTitle.trim()}
-                        className="w-full h-[34px] font-display font-medium text-xs uppercase clip-cyber bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.3)] hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-45"
+                        className="w-full h-[34px] font-display font-medium text-xs uppercase clip-cyber bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-[0_0_12px_rgba(99,102,241,0.3)] hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-45 outline-none border-none"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         Summon
@@ -1052,9 +1623,24 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
 
                 <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
                   {filteredTasks.length === 0 ? (
-                    <div className="text-center py-8">
-                      <CircleCheck className="w-8 h-8 text-slate-650 mx-auto mb-1.5 animate-pulse" />
-                      <p className="text-slate-550 font-mono text-[10px]">ALL CHORE BOUNDARIES CLEARED IN THIS COMN.</p>
+                    <div className="text-center py-10 px-4 bg-slate-950/35 rounded-xl border border-dashed border-indigo-500/10 flex flex-col items-center justify-center space-y-3.5">
+                      <Sparkles className="w-8 h-8 text-indigo-400/80 animate-pulse" />
+                      <div className="space-y-1">
+                        <p className="font-display font-black text-xs text-white uppercase tracking-wider block">Your Chore Board is Pristine!</p>
+                        <p className="text-[11px] text-slate-400 font-sans max-w-sm leading-relaxed mx-auto">
+                          All personal chore boundaries are cleared. Summon a new custom task above to earn XP and progress towards your next rank!
+                        </p>
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          const inputEl = document.querySelector('input[placeholder*="Complete 30-min"]') as HTMLInputElement;
+                          if (inputEl) inputEl.focus();
+                        }}
+                        className="px-3.5 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/25 border border-indigo-500/25 text-[9px] font-mono font-bold text-indigo-300 uppercase tracking-widest transition-all cursor-pointer"
+                      >
+                        ⚡ Summon Custom Chore
+                      </button>
                     </div>
                   ) : (
                     filteredTasks.map((task) => (
@@ -1070,10 +1656,10 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
                           <button
                             onClick={() => !task.completed && handleCompleteTask(task.id)}
                             disabled={task.completed}
-                            className={`mt-0.5 w-4.5 h-4.5 rounded border transition-all flex items-center justify-center shrink-0 cursor-pointer ${
+                            className={`mt-0.5 w-[18px] h-[18px] rounded border transition-all flex items-center justify-center shrink-0 cursor-pointer ${
                               task.completed 
                                 ? 'border-emerald-500 bg-emerald-500 text-black' 
-                                : 'border-slate-600 hover:border-indigo-400 bg-black/40'
+                                : 'border-slate-650 hover:border-indigo-400 bg-black/40'
                             }`}
                           >
                             {task.completed && <CheckSquare className="w-3.5 h-3.5" />}
@@ -1116,7 +1702,7 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
                           
                           <button
                             onClick={() => handleDeleteTask(task.id)}
-                            className="p-1 rounded text-slate-550 hover:text-rose-450 hover:bg-rose-500/10 transition-colors cursor-pointer border-none bg-none outline-none"
+                            className="p-1 rounded text-slate-550 hover:text-rose-450 hover:bg-rose-500/10 transition-colors cursor-pointer border-none bg-none outline-none bg-transparent"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1130,112 +1716,183 @@ export default function DashboardView({ onNavigate }: { onNavigate?: (tab: 'home
           )}
         </div>
 
-      </div>
-
-      {/* COLUMN RIGHT: USER COCKPIT DETAILS & STREAKS (PERSTENT METER BOX) */}
-      <div className="lg:col-span-4 flex flex-col gap-6">
-        
-        {/* AVATAR & XP LEVEL METER COCKPIT */}
-        <div className="p-5 rounded-2xl bg-gradient-to-b from-white/5 to-[#0b0b1a]/60 border border-white/10 flex flex-col items-center text-center relative overflow-hidden">
-          {/* Circular level display */}
-          <div className="relative w-32 h-32 mb-4 flex items-center justify-center shrink-0">
-            <svg className="w-full h-full transform -rotate-90 absolute inset-0">
-              <circle cx="64" cy="64" r="48" className="stroke-slate-800/80" strokeWidth="5.5" fill="transparent" />
-              <circle cx="64" cy="64" r="48" className="stroke-indigo-400 transition-all duration-700 ease-out" strokeWidth="5.5" fill="transparent" strokeDasharray={2 * Math.PI * 48} strokeDashoffset={2 * Math.PI * 48 - (progressPercent / 100) * (2 * Math.PI * 48)} strokeLinecap="round" />
-            </svg>
-            <div className="w-[110px] h-[110px] rounded-full overflow-hidden border border-white/10 bg-black/60 flex items-center justify-center">
-              <AvatarImage src={user.avatar} alt={user.username} className="w-full h-full object-cover select-none" />
+        {/* COLLAPSIBLE SYSTEM 2: VANGUARD LOG FEED (OPTIONAL SOCIAL CONSOLE) */}
+        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl overflow-hidden transition-all shadow-md">
+          <button
+            onClick={() => setIsFeedPreviewExpanded(!isFeedPreviewExpanded)}
+            id="social-radar-toggle-btn"
+            className="w-full p-4.5 flex items-center justify-between hover:bg-white/[0.02] transition-colors outline-none cursor-pointer border-none bg-transparent"
+          >
+            <div className="flex items-center gap-3 text-left">
+              <MessageSquare className="w-5 h-5 text-purple-400" />
+              <div>
+                <span className="font-display font-black text-[10px] text-purple-400 tracking-widest block uppercase">COMMUNITY INTEL</span>
+                <h4 className="font-display font-bold text-sm tracking-wide text-white uppercase mt-0.5">
+                  Vanguard Log Transmission Feed ({posts.length})
+                </h4>
+              </div>
             </div>
-          </div>
-
-          <h2 className="font-display font-black text-base text-slate-100 uppercase tracking-widest text-glow-blue">
-            {user.username}
-          </h2>
-          <span className="font-mono text-[9px] text-indigo-400 uppercase tracking-widest mt-1 font-extrabold block">
-            {getUserRank(user.level).badge} {getUserRank(user.level).name}
-          </span>
-
-          {/* XP progress details */}
-          <div className="w-full mt-4 p-3 bg-black/40 rounded-xl border border-white/5 font-mono text-left">
-            <div className="flex justify-between items-center text-[10px] mb-1.5 uppercase font-black text-slate-400">
-              <span>LVL {user.level} RATING</span>
-              <span className="text-indigo-400">{user.xp} / {user.requiredXp} XP</span>
-            </div>
-            
-            <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-white/5">
-              <div 
-                className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 shadow-[0_0_8px_rgba(139,92,246,0.6)] transition-all duration-500 ease-out"
-                style={{ width: `${progressPercent}%` }}
-              ></div>
-            </div>
-          </div>
-
-          <div className="flex gap-1.5 mt-3.5 items-center justify-center flex-wrap">
-            <span className="text-[9px] text-slate-500 font-mono uppercase">BADGES:</span>
-            {user.badges.slice(0, 4).map((badge, idx) => (
-              <span key={idx} title={badge.title} className="w-4.5 h-4.5 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-[8px] text-purple-400 select-none">
-                ★
-              </span>
-            ))}
-            {user.badges.length > 4 && <span className="text-[9px] font-mono text-slate-550">+{user.badges.length - 4}</span>}
-            {user.badges.length === 0 && <span className="text-[9px] font-mono text-slate-600">NONE</span>}
-          </div>
-        </div>
-
-        {/* PERSISTENT WEEK GRID STREAKS */}
-        <div className="p-5 rounded-2xl bg-white/5 border border-white/10">
-          <div className="flex items-center justify-between gap-3 mb-3.5">
             <div className="flex items-center gap-2">
-              <Flame className="w-4.5 h-4.5 text-orange-400 animate-bounce" />
-              <h3 className="font-display font-bold text-xs uppercase tracking-wider text-pink-200">
-                DAILY SYNCHRONY
-              </h3>
+              <span className="font-mono text-[9px] uppercase bg-black/45 hover:bg-black/65 text-slate-400 px-2 py-1 rounded">
+                {isFeedPreviewExpanded ? 'CONCEAL CONSOLE' : 'ENGAGE RADAR'}
+              </span>
+              {isFeedPreviewExpanded ? (
+                <ChevronUp className="w-4 h-4 text-slate-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-slate-400 text-purple-400 animate-pulse" />
+              )}
             </div>
-            <span className="font-mono text-xs text-orange-400 font-bold bg-orange-400/10 border border-orange-400/25 px-2.5 py-0.5 rounded">
-              {user.streak} DAYS FLAME
-            </span>
-          </div>
+          </button>
 
-          <p className="text-[10.5px] text-slate-450 leading-relaxed font-sans mb-4 border-l-2 border-indigo-500/20 pl-2.5">
-            Complete at least one real-world calibration coordinate daily to foster your flame. Continuous streaks amplify experience points multipliers.
-          </p>
-
-          {/* Weekday boxes */}
-          <div className="grid grid-cols-7 gap-1.5 font-mono text-[9px] text-center text-slate-500 leading-normal">
-            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, dIdx) => {
-              const d = new Date();
-              const currentDayIndex = d.getDay();
-              const isPastOrToday = dIdx <= currentDayIndex;
-              const isActive = user.streak >= (dIdx + 1) || (currentDayIndex === dIdx && isChallengeCompletedToday);
+          {isFeedPreviewExpanded && (
+            <div className="p-5 border-t border-white/5 bg-[#03030c]/60 space-y-4 animate-fade-in text-left">
               
-              return (
-                <div key={dIdx} className="flex flex-col items-center">
-                  <span className="mb-1 text-[9px] text-slate-400 font-bold">{day}</span>
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-all ${
-                    isActive 
-                      ? 'bg-gradient-to-br from-pink-500/20 to-orange-500/20 border-orange-500/50 text-orange-400 shadow-[0_0_8px_rgba(249,115,22,0.15)] font-bold' 
-                      : isPastOrToday 
-                        ? 'bg-black/35 border-slate-900 text-slate-650' 
-                        : 'bg-black/20 border-slate-950 text-slate-800'
-                  }`}>
-                    {isActive ? '🔥' : '•'}
+              <p className="text-[11px] text-slate-450 font-sans max-w-xl">
+                Broadcasting accomplishments coordinates establishes high-fidelity accountability limits with fellow virtual travelers. Send a brief shout below:
+              </p>
+
+              {/* Quick Post Box first */}
+              <form onSubmit={handleQuickPost} className="p-3 bg-black/45 rounded-xl border border-slate-900/60 flex gap-2">
+                <input 
+                  type="text"
+                  required
+                  value={quickPostContent}
+                  onChange={(e) => setQuickPostContent(e.target.value)}
+                  placeholder="Deploy a quick transmission directly to feed..."
+                  className="flex-1 px-3 py-2 rounded-lg bg-black/40 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors outline-none font-sans"
+                  disabled={isPosting}
+                />
+                <button
+                  type="submit"
+                  disabled={isPosting || !quickPostContent.trim()}
+                  className="px-4 rounded-lg h-[32px] bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-mono text-[10px] uppercase font-bold tracking-wider transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer flex items-center gap-1.5 outline-none border-none"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{isPosting ? 'DEPLOY...' : 'POST'}</span>
+                </button>
+              </form>
+
+              {quickPostError && (
+                <span className="text-[10px] font-mono text-pink-400 -mt-2 px-1 block">
+                  ⚠️ {quickPostError}
+                </span>
+              )}
+
+              {/* Preview list */}
+              <div className="space-y-3">
+                {isFeedLoading ? (
+                  <div className="text-center py-4 text-xs font-mono text-slate-500 animate-pulse">
+                    SYNCING BROADCAST CORE...
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                ) : posts.length === 0 ? (
+                  <div className="text-center py-4 text-[10px] font-mono text-slate-600">
+                    TRANS-SPACE QUIET. NO SHOUTS SIGNALED YET.
+                  </div>
+                ) : (
+                  posts.slice(0, 3).map((post) => (
+                    <div key={post.id} className="p-3.5 bg-white/[0.01] border border-white/5 rounded-xl flex items-start gap-3 hover:bg-white/[0.03] transition-all">
+                      <div className="w-8 h-8 rounded-lg overflow-hidden border border-slate-800 shrink-0 mt-0.5">
+                        <AvatarImage 
+                          src={post.authorAvatar} 
+                          alt={post.authorName} 
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-display font-bold text-[11px] text-slate-200">{post.authorName}</span>
+                          <span className="text-[8px] font-mono text-slate-500">
+                            {new Date(post.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-350 mt-1 line-clamp-2 leading-relaxed font-sans">
+                          {post.content}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {onNavigate && (
+                  <button 
+                    onClick={() => onNavigate('community', 'feed')}
+                    className="w-full py-2 bg-purple-500/5 hover:bg-purple-500/10 border border-purple-500/20 hover:border-purple-500/40 text-[10px] font-mono text-purple-400 uppercase tracking-widest text-center rounded-lg transition-all cursor-pointer outline-none block"
+                  >
+                    🚀 Enter Community Tab for Full Broadcast Feeds
+                  </button>
+                )}
+              </div>
+
+            </div>
+          )}
         </div>
 
-        {/* TOTAL METRICS SLIDES */}
-        <div className="p-4 rounded-xl border border-white/10 bg-white/5 grid grid-cols-2 gap-3 text-center">
-          <div className="p-3 rounded-lg bg-black/20 border border-white/5">
-            <span className="text-slate-500 font-mono text-[9px] uppercase block mb-0.5 font-bold">XP DEPOSITED</span>
-            <span className="text-indigo-400 text-base font-display font-black">+{xpGainedToday}</span>
+        {/* PERSISTENT HISTORICAL CALENDAR AND STATS SEGMENT */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch">
+          
+          {/* Week Streak Tracker Box */}
+          <div className="md:col-span-8 p-5 rounded-2xl bg-white/5 border border-white/10 flex flex-col justify-between text-left">
+            <div>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <Flame className="w-4.5 h-4.5 text-orange-400 animate-bounce" />
+                  <h3 className="font-display font-black text-[10px] uppercase tracking-wider text-pink-200">
+                    Somatic Habit Weekly Grid Tracker
+                  </h3>
+                </div>
+                <span className="font-mono text-xs text-orange-400 font-bold bg-orange-400/10 border border-orange-400/25 px-2 py-0.5 rounded">
+                  🔥 {user.streak} Days Stream
+                </span>
+              </div>
+              <p className="text-[10.5px] text-slate-400 leading-relaxed font-sans mb-3">
+                Preserve continuous daily synchronization momentum to multiply your incoming training coordinate payouts. Multiple weeks build-up creates high-tier multiplier caps.
+              </p>
+            </div>
+
+            {/* Week boxes */}
+            <div className="grid grid-cols-7 gap-1.5 font-mono text-[9px] text-center text-slate-550 leading-normal">
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, dIdx) => {
+                const d = new Date();
+                const currentDayIndex = d.getDay();
+                const isPastOrToday = dIdx <= currentDayIndex;
+                const isActive = user.streak >= (dIdx + 1) || (currentDayIndex === dIdx && isChallengeCompletedToday);
+                
+                return (
+                  <div key={dIdx} className="flex flex-col items-center">
+                    <span className="mb-1 text-[9px] text-slate-400 font-bold">{day}</span>
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-all ${
+                      isActive 
+                        ? 'bg-gradient-to-br from-pink-500/25 to-orange-500/25 border-orange-500/50 text-orange-400 shadow-[0_0_8px_rgba(249,115,22,0.15)] font-bold' 
+                        : isPastOrToday 
+                          ? 'bg-black/35 border-slate-900 text-slate-600' 
+                          : 'bg-black/20 border-slate-950 text-slate-800'
+                    }`}>
+                      {isActive ? '🔥' : '•'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="p-3 rounded-lg bg-black/20 border border-white/5">
-            <span className="text-slate-500 font-mono text-[9px] uppercase block mb-0.5 font-bold">TOTAL CHORES</span>
-            <span className="text-purple-400 text-base font-display font-black">{totalCompleted}</span>
+
+          {/* Cumulative Total statistics box */}
+          <div className="md:col-span-4 p-5 rounded-2xl bg-white/5 border border-white/10 flex flex-col justify-between text-left">
+            <span className="font-display font-black text-[10px] text-slate-500 tracking-widest block uppercase mb-1">AGGREGATED LIFETIME LOGS</span>
+            <div className="space-y-3 my-auto">
+              <div className="p-3.5 rounded-xl bg-black/35 border border-white/5 flex items-center justify-between">
+                <span className="text-[10px] uppercase font-mono text-slate-400">Total Chores Cleared</span>
+                <span className="text-purple-400 font-display font-black text-lg">+{totalCompleted}</span>
+              </div>
+              <div className="p-3.5 rounded-xl bg-black/35 border border-white/5 flex items-center justify-between">
+                <span className="text-[10px] uppercase font-mono text-slate-400">Today's XP Received</span>
+                <span className="text-indigo-400 font-display font-black text-lg">+{xpGainedToday}</span>
+              </div>
+            </div>
+            <p className="text-[8px] font-mono text-slate-600 uppercase text-center mt-2 tracking-widest">
+              Verified & synced in memory core
+            </p>
           </div>
+
         </div>
 
       </div>

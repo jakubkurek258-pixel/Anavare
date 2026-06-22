@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { Swords, Eye, Mail, Lock, Shield, Sparkles, UserPlus } from 'lucide-react';
 import { COMPANIONS_AVATARS } from '../data/rpgAssets';
 import { validateUsername } from '../lib/usernameValidator';
+import { trackEvent } from '../lib/firebase';
 
 interface LoginViewProps {
   initialIsSignUp?: boolean;
@@ -52,11 +53,14 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
           return;
         }
         await registerWithEmail(username.trim(), email.trim(), password);
+        trackEvent('sign_up', { method: 'email', username: username.trim() });
         setInfoText('✓ Character registered! Please check your inbox for verification protocols.');
       } else {
         await loginWithEmail(email.trim(), password);
+        trackEvent('login', { method: 'email' });
       }
     } catch (err: any) {
+      trackEvent('auth_error', { isSignUp, error: err.message || 'unknown' });
       if (isSignUp) {
         const msg = err.message || '';
         if (msg.includes('auth/operation-not-allowed') || msg.includes('operation-not-allowed')) {
@@ -85,7 +89,9 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
     setSubmitting(true);
     try {
       await loginWithGoogle();
+      trackEvent('login', { method: 'google' });
     } catch (err: any) {
+      trackEvent('auth_error', { method: 'google', error: err.message || 'unknown' });
       setErrorText(err.message || 'Google link connection coordinates offline.');
     } finally {
       setSubmitting(false);
@@ -99,12 +105,14 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
     setResetLoading(true);
     try {
       await forgotPassword(resetEmail.trim());
+      trackEvent('password_reset_success', { email_domain: resetEmail.split('@')[1] });
       setResetStatusText({
         type: 'success',
         message: 'Password reset email sent. Check your inbox.'
       });
     } catch (err: any) {
       console.warn("[LoginView WARNING] forgotPassword failed:", err);
+      trackEvent('password_reset_requested_safe', { email_domain: resetEmail.split('@')[1] });
       // Show requested safe message to avoid disclosing account existence
       setResetStatusText({
         type: 'success', // Show safe info message layout

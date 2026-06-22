@@ -60,7 +60,14 @@ export const antiSpam = {
     const tracker = userTrackers.get(userId);
 
     if (tracker) {
-      // 1. Check duplicate file within the duplicate window
+      // 1. Check general uploads cooldown (15 seconds)
+      const elapsed = now - tracker.lastUploadTime;
+      const cooldownMs = 15 * 1000;
+      if (elapsed < cooldownMs) {
+        throw new Error("Please wait before uploading again.");
+      }
+
+      // 2. Check duplicate file within the duplicate window
       if (tracker.lastUploadedFile) {
         const duplicateElapsed = now - tracker.lastUploadTime;
         const duplicateWindowMs = REPEATED_UPLOAD_WINDOW_SEC * 1000;
@@ -73,14 +80,29 @@ export const antiSpam = {
           throw new Error('You have already uploaded this file recently. Please select a different file or wait a moment.');
         }
       }
+    }
 
-      // 2. Check general uploads cooldown
-      const elapsed = now - tracker.lastUploadTime;
-      const cooldownMs = COOLDOWN_UPLOAD_SEC * 1000;
-      if (elapsed < cooldownMs) {
-        const remaining = Math.ceil((cooldownMs - elapsed) / 1000);
-        throw new Error(`You are uploading files too fast! Please wait ${remaining} seconds.`);
+    // 3. Check Daily Upload Limit (Max 5 per user per day)
+    const utcDateStr = new Date().toISOString().split('T')[0];
+    const storageKey = `anavare_upload_limit_${userId}`;
+    let dailyTracker = { dateStr: utcDateStr, count: 0 };
+
+    try {
+      const cached = localStorage.getItem(storageKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.dateStr === utcDateStr) {
+            dailyTracker = parsed;
+          }
+        }
       }
+    } catch (e) {
+      console.warn('[antiSpam] Error reading upload tracker from localStorage:', e);
+    }
+
+    if (dailyTracker.count >= 5) {
+      throw new Error("Daily upload limit reached. Try again tomorrow.");
     }
   },
 
@@ -96,6 +118,31 @@ export const antiSpam = {
       size: file.size
     };
     userTrackers.set(userId, tracker);
+
+    // Increment count in localStorage
+    const utcDateStr = new Date().toISOString().split('T')[0];
+    const storageKey = `anavare_upload_limit_${userId}`;
+    let dailyTracker = { dateStr: utcDateStr, count: 0 };
+
+    try {
+      const cached = localStorage.getItem(storageKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === 'object' && parsed.dateStr === utcDateStr) {
+          dailyTracker = parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('[antiSpam] Error parsing cached tracker in register:', e);
+    }
+
+    dailyTracker.count += 1;
+
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(dailyTracker));
+    } catch (e) {
+      console.warn('[antiSpam] Error saving upload tracker to localStorage:', e);
+    }
   },
 
   /**
