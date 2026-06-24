@@ -9,7 +9,7 @@ import {
   sendPasswordResetEmail,
   User as FirebaseUser
 } from 'firebase/auth';
-import { auth, isFirebaseEnabled } from '../lib/firebase';
+import { auth, isFirebaseEnabled, isAuthEnabled } from '../lib/firebase';
 import { UserProfile } from '../types';
 import { stateService } from '../lib/stateService';
 import { validateUsername } from '../lib/usernameValidator';
@@ -372,7 +372,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Email address is required.");
     }
     console.log("[AuthContext ACTION] Initiating password reset request. Email:", email.trim());
-    if (isFirebaseEnabled && auth) {
+    if (isAuthEnabled && auth) {
       try {
         await sendPasswordResetEmail(auth, email.trim());
         console.log("[AuthContext SUCCESS] Firebase sendPasswordResetEmail completed successfully. Email sent to:", email.trim());
@@ -381,7 +381,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw err;
       }
     } else {
-      console.log(`[AuthContext SIMULATED] Password reset email dispatched to ${email.trim()}`);
+      console.error("[AuthContext ERROR] Cannot send password reset: Firebase Auth is not enabled or running in local mock mode.");
+      throw new Error("Firebase Auth is running in local mock/sandbox mode. Real Firebase credentials must be configured to send actual reset emails.");
     }
   };
 

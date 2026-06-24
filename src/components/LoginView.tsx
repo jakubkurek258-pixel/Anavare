@@ -118,10 +118,9 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
       const errorMessage = err?.message || '';
 
       if (errorCode === 'auth/user-not-found' || errorMessage.includes('user-not-found')) {
-        // Safe message for user-not-found to prevent account enumeration
         setResetStatusText({
-          type: 'success',
-          message: 'If this account exists, a reset email has been sent.'
+          type: 'error',
+          message: '⚠️ Email address not found. Please check your spelling or register a new account.'
         });
       } else if (errorCode === 'auth/invalid-email' || errorMessage.includes('invalid-email')) {
         setResetStatusText({

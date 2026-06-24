@@ -52,8 +52,9 @@ export interface FirestoreErrorInfo {
 
 // Check if it's the default mock configuration
 export const isMockConfig =
-  !import.meta.env.VITE_FIREBASE_API_KEY ||
-  import.meta.env.VITE_FIREBASE_API_KEY.includes('mock-api-key');
+  !firebaseConfig.apiKey ||
+  firebaseConfig.apiKey.includes('mock-api-key') ||
+  firebaseConfig.projectId === 'mock-project';
 
 export let app: any = null;
 export let analytics: any = null;
@@ -128,6 +129,7 @@ if (typeof window !== 'undefined') {
 if (!isMockConfig) {
   try {
     app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+    console.log("[Firebase] Core App initialized successfully.");
     
     // Enabling forced long polling to bypass proxy websocket/HTTP2 streaming constraints and eliminate transmission timeout errors.
     const firestoreSettings = {
@@ -136,18 +138,33 @@ if (!isMockConfig) {
     };
 
     const dbId = firebaseConfig.firestoreDatabaseId;
-    dbInstance = (dbId && dbId !== '(default)' && dbId !== 'default')
-      ? initializeFirestore(app, firestoreSettings, dbId)
-      : initializeFirestore(app, firestoreSettings);
+    try {
+      dbInstance = (dbId && dbId !== '(default)' && dbId !== 'default')
+        ? initializeFirestore(app, firestoreSettings, dbId)
+        : initializeFirestore(app, firestoreSettings);
+      console.log("[Firebase] Firestore database initialized successfully.");
+    } catch (dbError) {
+      console.error("[Firebase ERROR] Failed to initialize Firestore database:", dbError);
+    }
     
-    authInstance = getAuth(app);
-    setPersistence(authInstance, browserLocalPersistence).then(() => {
-      console.log("Firebase Auth persistence set to browserLocalPersistence successfully.");
-    }).catch((err) => {
-      console.warn("Failed to set Firebase Auth persistence to browserLocalPersistence:", err);
-    });
-    storageInstance = getStorage(app);
-    console.log("Firebase initialized successfully with real credentials and forced long-polling.");
+    try {
+      authInstance = getAuth(app);
+      setPersistence(authInstance, browserLocalPersistence).then(() => {
+        console.log("[Firebase] Auth persistence set to browserLocalPersistence successfully.");
+      }).catch((err) => {
+        console.warn("[Firebase] Failed to set Firebase Auth persistence to browserLocalPersistence:", err);
+      });
+      console.log("[Firebase] Auth initialized successfully.");
+    } catch (authError) {
+      console.error("[Firebase ERROR] Failed to initialize Firebase Auth:", authError);
+    }
+
+    try {
+      storageInstance = getStorage(app);
+      console.log("[Firebase] Storage initialized successfully.");
+    } catch (storageError) {
+      console.warn("[Firebase WARNING] Storage not initialized (may be disabled/restricted in the project):", storageError);
+    }
 
     // Safe browser-only Firebase Analytics SDK companion registration
     if (typeof window !== 'undefined') {
@@ -168,13 +185,14 @@ if (!isMockConfig) {
     console.warn("Failed to initialize Firebase SDK, falling back to local mode:", error);
   }
 } else {
-  console.log("Anavare initializing in local-first sandbox mode (Firebase keys not provided).");
+  console.log("Anavare initializing in local-first sandbox mode (Firebase keys not provided or mock-api-key detected).");
 }
 
 export const db = dbInstance;
 export const auth = authInstance;
 export const storage = storageInstance;
-export const isFirebaseEnabled = !isMockConfig && dbInstance !== null && authInstance !== null && storageInstance !== null;
+export const isFirebaseEnabled = !isMockConfig && dbInstance !== null && authInstance !== null;
+export const isAuthEnabled = !isMockConfig && authInstance !== null;
 
 // Reusable helper function for tracking analytics events
 export function trackEvent(eventName: string, params?: object) {
@@ -236,10 +254,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
-
-  const safeApp = app;
-  console.log("PROJECT:", safeApp?.options?.projectId);
-  
   console.error('Firestore Error Raised: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
