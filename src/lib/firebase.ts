@@ -5,6 +5,13 @@ import { getStorage } from 'firebase/storage';
 import { getAnalytics, logEvent, isSupported } from 'firebase/analytics';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
+console.log("[ENV DEBUG]", {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  resolvedApiKey: firebaseConfig.apiKey
+});
+
+
 declare global {
   interface Window {
     dataLayer?: any[];
@@ -52,8 +59,7 @@ export interface FirestoreErrorInfo {
 
 // Check if it's the default mock configuration
 export const isMockConfig =
-  !firebaseConfig.apiKey ||
-  firebaseConfig.apiKey.includes('mock-api-key') ||
+  firebaseConfig.apiKey === 'mock-api-key' ||
   firebaseConfig.projectId === 'mock-project';
 
 export let app: any = null;
