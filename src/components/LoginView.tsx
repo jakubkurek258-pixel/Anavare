@@ -108,16 +108,43 @@ export default function LoginView({ initialIsSignUp = false, onBackToLanding }: 
       trackEvent('password_reset_success', { email_domain: resetEmail.split('@')[1] });
       setResetStatusText({
         type: 'success',
-        message: 'Password reset email sent. Check your inbox.'
+        message: '✓ Password reset email sent! Check your inbox for reset coordinates.'
       });
     } catch (err: any) {
-      console.warn("[LoginView WARNING] forgotPassword failed:", err);
-      trackEvent('password_reset_requested_safe', { email_domain: resetEmail.split('@')[1] });
-      // Show requested safe message to avoid disclosing account existence
-      setResetStatusText({
-        type: 'success', // Show safe info message layout
-        message: 'If this account exists, a reset email has been sent.'
-      });
+      console.error("[LoginView ERROR] Password reset requested failed. Email:", resetEmail.trim(), "Error:", err);
+      trackEvent('password_reset_error', { email_domain: resetEmail.split('@')[1], error: err.message || 'unknown' });
+      
+      const errorCode = err?.code || '';
+      const errorMessage = err?.message || '';
+
+      if (errorCode === 'auth/user-not-found' || errorMessage.includes('user-not-found')) {
+        // Safe message for user-not-found to prevent account enumeration
+        setResetStatusText({
+          type: 'success',
+          message: 'If this account exists, a reset email has been sent.'
+        });
+      } else if (errorCode === 'auth/invalid-email' || errorMessage.includes('invalid-email')) {
+        setResetStatusText({
+          type: 'error',
+          message: '⚠️ Invalid email address format. Please check your spelling.'
+        });
+      } else if (errorCode === 'auth/too-many-requests' || errorMessage.includes('too-many-requests')) {
+        setResetStatusText({
+          type: 'error',
+          message: '⚠️ Too many requests. Please wait a moment before trying again.'
+        });
+      } else if (errorCode === 'auth/network-request-failed' || errorMessage.includes('network-request-failed')) {
+        setResetStatusText({
+          type: 'error',
+          message: '⚠️ Network connection failure. Please check your internet connectivity.'
+        });
+      } else {
+        // Generic failure message with details
+        setResetStatusText({
+          type: 'error',
+          message: `⚠️ Failed to send reset email: ${err.message || 'Unknown system error'}`
+        });
+      }
     } finally {
       setResetLoading(false);
     }

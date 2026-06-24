@@ -47,24 +47,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     console.log("[AuthContext INFO] Initializing onAuthStateChanged. isFirebaseEnabled:", isFirebaseEnabled);
     if (isFirebaseEnabled && auth) {
-      const unsubAuth = auth.onAuthStateChanged(async (fUser) => {
+      const unsubAuth = auth.onAuthStateChanged((fUser) => {
         console.log("[AuthContext INFO] onAuthStateChanged fired. User:", fUser ? fUser.email : "null", "UID:", fUser?.uid);
         
-        if (fUser && !isRegisteringRef.current) {
-          try {
-            await fUser.reload();
-          } catch (e) {
-            console.warn("[AuthContext WARNING] Could not reload user on check:", e);
-          }
-        }
-
-        // Always sync the firebaseUser reference stable and correct
-        setFirebaseUser(auth.currentUser || fUser);
+        // Sync the firebaseUser reference immediately to prevent UI lag
+        setFirebaseUser(fUser);
         
         if (!fUser) {
           console.log("[AuthContext SUCCESS] No Firebase session found. Resetting state.");
           setUser(null);
           setLoading(false);
+        } else {
+          // Perform reload in the background without delaying the authentication state propagation
+          if (!isRegisteringRef.current) {
+            fUser.reload().then(() => {
+              console.log("[AuthContext INFO] User reload completed in background successfully.");
+              // Refresh firebase user reference after reload to get up-to-date fields like emailVerified
+              setFirebaseUser(auth.currentUser);
+            }).catch((e) => {
+              console.warn("[AuthContext WARNING] Could not reload user in background:", e);
+            });
+          }
         }
       });
       return unsubAuth;
@@ -102,20 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Do not subscribe if registration is active
-    if (isRegisteringRef.current) {
-      return;
-    }
-
-    if (isFirebaseEnabled && auth) {
-      // Guard: Wait for the Firebase Auth client session to fully propagate
-      if (!auth.currentUser || auth.currentUser.uid !== uid) {
-        console.log("[AuthContext INFO] Postponing Firestore subscription, auth.currentUser mismatch or not settled yet.");
-        return;
-      }
-    }
-
-    console.log("[AuthContext INFO] Player activeUid verified. Starting safe subscription & setting loading=true");
+    console.log("[AuthContext INFO] Player activeUid verified. Starting safe subscription & setting loading=true. UID:", uid);
     setLoading(true);
     
     unsubscribeUser = stateService.subscribeToUser(uid, async (profile) => {
@@ -133,6 +123,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         console.warn("[AuthContext WARNING] Snapshot user profile is empty (null) for UID:", uid);
         
+        // If registration is active, we don't clear user or set loading=false yet, because the document is being provisioned
+        if (isRegisteringRef.current) {
+          console.log("[AuthContext INFO] Registration is currently in progress. Postponing state reset.");
+          return;
+        }
+
         if (!isFirebaseEnabled) {
           console.log("[AuthContext INFO] Dynamic local cleanup sequence triggered.");
           localStorage.removeItem('anavare_auth_uid');
@@ -143,6 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } else {
           if (active) {
+            setUser(null);
             setLoading(false);
           }
         }
@@ -163,13 +160,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       if (isFirebaseEnabled && auth) {
-        console.log("[AuthContext INFO] Authenticating with Live Firebase...");
+        console.log("[AuthContext INFO] Authenticating with Live Firebase. Email used:", email);
         const result = await signInWithEmailAndPassword(auth, email, pass);
-        console.log("[AuthContext SUCCESS] Firebase authentication completed.", result.user.uid);
+        console.log("[AuthContext SUCCESS] Firebase authentication completed. UID:", result.user.uid);
         
-        // After login, reload Firebase user to get correct emailVerified state but keep session intact
-        await result.user.reload();
-        setFirebaseUser(auth.currentUser);
+        // After login, attempt to reload user to get correct emailVerified state, but never block or crash if reload fails
+        try {
+          await result.user.reload();
+          console.log("[AuthContext INFO] User reload completed successfully after login.");
+        } catch (reloadErr) {
+          console.warn("[AuthContext WARNING] Failed to reload user after login:", reloadErr);
+        }
+        setFirebaseUser(auth.currentUser || result.user);
       } else {
         console.log("[AuthContext INFO] Authenticating with Local Emulator database...");
         const users = JSON.parse(localStorage.getItem('anavare_users') || '{}');
@@ -369,11 +371,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!email || !email.trim()) {
       throw new Error("Email address is required.");
     }
+    console.log("[AuthContext ACTION] Initiating password reset request. Email:", email.trim());
     if (isFirebaseEnabled && auth) {
       try {
         await sendPasswordResetEmail(auth, email.trim());
-      } catch (err) {
-        console.warn("[AuthContext WARNING] Firebase sendPasswordResetEmail failed internally:", err);
+        console.log("[AuthContext SUCCESS] Firebase sendPasswordResetEmail completed successfully. Email sent to:", email.trim());
+      } catch (err: any) {
+        console.error("[AuthContext ERROR] Firebase sendPasswordResetEmail failed. Email:", email.trim(), "Error Code:", err?.code, "Full Error:", err);
         throw err;
       }
     } else {
