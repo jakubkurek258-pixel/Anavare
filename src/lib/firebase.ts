@@ -1,8 +1,9 @@
 import { initializeApp, getApp, getApps } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { getFirestore, initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getAnalytics, logEvent, isSupported } from 'firebase/analytics';
+import firebaseConfigJson from '../../firebase-applet-config.json';
 
 declare global {
   interface Window {
@@ -11,16 +12,16 @@ declare global {
   }
 }
 
-// Support environment variables (required for secure deployment) and safe mock fallbacks for local-first testing
+// Support environment variables (required for secure deployment) and fallbacks to the applet config JSON, with safe mock fallbacks for local-first testing
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "mock-api-key",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "mock-auth-domain",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "mock-project",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "mock-storage-bucket",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "mock-sender-id",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "mock-app-id",
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "mock-measurement-id",
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || "(default)"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigJson.apiKey || "mock-api-key",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigJson.authDomain || "mock-auth-domain",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfigJson.projectId || "mock-project",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigJson.storageBucket || "mock-storage-bucket",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigJson.messagingSenderId || "mock-sender-id",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfigJson.appId || "mock-app-id",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfigJson.measurementId || "mock-measurement-id",
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || firebaseConfigJson.firestoreDatabaseId || "(default)"
 };
 
 export enum OperationType {
@@ -51,9 +52,8 @@ export interface FirestoreErrorInfo {
 
 // Check if it's the default mock configuration
 export const isMockConfig =
-  !firebaseConfig.apiKey ||
-  firebaseConfig.apiKey.includes('mock-api-key') ||
-  firebaseConfig.projectId === 'mock-project';
+  !import.meta.env.VITE_FIREBASE_API_KEY ||
+  import.meta.env.VITE_FIREBASE_API_KEY.includes('mock-api-key');
 
 export let app: any = null;
 export let analytics: any = null;
@@ -141,6 +141,11 @@ if (!isMockConfig) {
       : initializeFirestore(app, firestoreSettings);
     
     authInstance = getAuth(app);
+    setPersistence(authInstance, browserLocalPersistence).then(() => {
+      console.log("Firebase Auth persistence set to browserLocalPersistence successfully.");
+    }).catch((err) => {
+      console.warn("Failed to set Firebase Auth persistence to browserLocalPersistence:", err);
+    });
     storageInstance = getStorage(app);
     console.log("Firebase initialized successfully with real credentials and forced long-polling.");
 
@@ -231,6 +236,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
+
+  const safeApp = app;
+  console.log("PROJECT:", safeApp?.options?.projectId);
+  
   console.error('Firestore Error Raised: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
