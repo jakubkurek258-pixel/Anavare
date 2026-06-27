@@ -5,12 +5,6 @@ import { getStorage } from 'firebase/storage';
 import { getAnalytics, logEvent, isSupported } from 'firebase/analytics';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
-console.log("[ENV DEBUG]", {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  resolvedApiKey: firebaseConfig.apiKey
-});
-
 
 declare global {
   interface Window {
@@ -30,6 +24,12 @@ export const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfigJson.measurementId || "mock-measurement-id",
   firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || firebaseConfigJson.firestoreDatabaseId || "(default)"
 };
+
+console.log("[ENV DEBUG]", {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  resolvedApiKey: firebaseConfig.apiKey
+});
 
 export enum OperationType {
   CREATE = 'create',

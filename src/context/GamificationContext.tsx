@@ -8,6 +8,7 @@ import { UserProfile, Badge } from '../types';
 interface GamificationContextType {
   triggerMockXpGain: (amount: number) => void;
   triggerMockLevelUp: () => void;
+  triggerMockStreak: () => void;
 }
 
 const GamificationContext = createContext<GamificationContextType | undefined>(undefined);
@@ -172,6 +173,16 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
     setTimeout(() => setShowConfetti(false), 6000);
   };
 
+  const triggerMockStreak = () => {
+    const isMilestone = ((user?.streak || 5) + 1) % 3 === 0 || ((user?.streak || 5) + 1) % 5 === 0;
+    setStreakCelebration({ show: true, streak: (user?.streak || 5) + 1, isMilestone });
+    playSound('streak');
+    if (isMilestone) {
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 5000);
+    }
+  };
+
   // Confetti generator engine
   const renderConfetti = () => {
     if (!showConfetti) return null;
@@ -223,7 +234,7 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
   };
 
   return (
-    <GamificationContext.Provider value={{ triggerMockXpGain, triggerMockLevelUp }}>
+    <GamificationContext.Provider value={{ triggerMockXpGain, triggerMockLevelUp, triggerMockStreak }}>
       {children}
 
       {/* Floating XP bubble indicators */}

@@ -7,7 +7,7 @@ import { trackEvent } from '../lib/firebase';
 
 export default function RewardShowcase() {
   const { user } = useAuth();
-  const { triggerMockLevelUp } = useGamification();
+  const { triggerMockLevelUp, triggerMockStreak } = useGamification();
   const [activeStreakModal, setActiveStreakModal] = useState<boolean>(false);
   const [streakVal, setStreakVal] = useState<number>(0);
 
@@ -70,21 +70,13 @@ export default function RewardShowcase() {
     const storedLevelVal = Number(storedLevelStr);
 
     // 1. STREAK UP EVALUATION
-    // Trigger when current streak is greater than stored, and not yet celebrated today
+    // The legacy StreakRewardModal has been completely disabled and removed.
+    // We update local coordinates silently here to prevent desync loop states, while
+    // GamificationContext's beautiful daily streak celebration overlay serves as the single source of truth.
     if (currentStreak > storedStreakVal) {
-      if (storedStreakDate !== todayStr) {
-        setStreakVal(currentStreak);
-        setActiveStreakModal(true);
-        playRewardSound('streak');
-        trackEvent('streak_reward_celebration', { streakValue: currentStreak });
-        
-        // Persist local state immediately to block spamming on component updates
-        localStorage.setItem(streakKey, String(currentStreak));
-        localStorage.setItem(streakDateKey, todayStr);
-      } else {
-        // Already shown today, just align the count silently
-        localStorage.setItem(streakKey, String(currentStreak));
-      }
+      trackEvent('streak_reward_celebration', { streakValue: currentStreak });
+      localStorage.setItem(streakKey, String(currentStreak));
+      localStorage.setItem(streakDateKey, todayStr);
     }
 
     // 2. LEVEL UP EVALUATION
@@ -108,9 +100,7 @@ export default function RewardShowcase() {
 
   // Handle dry-run test demo buttons (for debug & user testing feedback)
   const triggerDemoStreak = () => {
-    setStreakVal((user?.streak || 5) + 1);
-    setActiveStreakModal(true);
-    playRewardSound('streak');
+    triggerMockStreak();
   };
 
   const triggerDemoLevel = () => {
